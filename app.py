@@ -78,6 +78,62 @@ def programming():
     sc_data = db.get_all_scheduling_data()
     return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
 
+@app.route('/api/generate_schedule', methods=['POST'])
+def api_generate_schedule():
+    db = DBQueries()
+    sc_data = db.get_all_scheduling_data()
+    
+    # Calculate backlog summary per denier
+    backlog_summary = {}
+    for o in sc_data['orders']:
+        d_name = o.get('deniers', {}).get('name')
+        if not d_name: continue
+        if d_name not in backlog_summary:
+            backlog_summary[d_name] = {'kg_total': 0}
+        backlog_summary[d_name]['kg_total'] += (o['total_kg'] - (o.get('produced_kg') or 0))
+
+    result = generate_production_schedule(
+        orders=sc_data['orders'],
+        rewinder_capacities=sc_data['rewinder_capacities'],
+        shifts=sc_data['shifts'],
+        torsion_capacities=sc_data['torsion_capacities'],
+        backlog_summary=backlog_summary
+    )
+    
+    return jsonify(result)
+
+@app.route('/api/ai_chat', methods=['POST'])
+def api_ai_chat():
+    data = request.json
+    user_message = data.get('message')
+    db = DBQueries()
+    orders = db.get_orders()
+    
+    # Simple context injection
+    from integrations.openai_ia import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": f"Eres el asistente inteligente de la planta Ciplas. Tienes acceso al backlog actual: {orders}. Responde de forma profesional y técnica."},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        return jsonify({"response": response.choices[0].message.content})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/api/ai_scenario', methods=['POST'])
+def api_ai_scenario():
+    db = DBQueries()
+    orders = db.get_orders()
+    # Mocking reports for now or fetching from DB if available
+    reports = [] 
+    scenario = get_ai_optimization_scenario(orders, reports)
+    return jsonify({"response": scenario})
+
 @app.route('/config')
 def config():
     db = DBQueries()

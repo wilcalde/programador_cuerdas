@@ -13,14 +13,15 @@
 
     <div style="padding: 1.5rem; border-top: 1px solid var(--border-color);">
         <div style="display: flex; gap: 1rem;">
-            <input type="text" id="user-input" placeholder="Pregunta algo sobre la producción..." class="form-control" style="flex-grow: 1;">
+            <input type="text" id="user-input" placeholder="Pregunta algo sobre la producción..." class="form-control"
+                style="flex-grow: 1;">
             <button class="btn btn-primary" onclick="sendMessage()">Enviar</button>
         </div>
     </div>
 </div>
 
 <div style="margin-top: 1.5rem;">
-    <button class="btn glass" style="border: 1px solid var(--accent-blue); color: var(--accent-blue); width: 100%;">
+    <button class="btn glass" onclick="generateScenario()" style="border: 1px solid var(--accent-blue); color: var(--accent-blue); width: 100%;">
         Generar Escenario Óptimo (Auto)
     </button>
 </div>
@@ -28,20 +29,44 @@
 
 {% block scripts %}
 <script>
-    function sendMessage() {
+    async function sendMessage() {
         const input = document.getElementById('user-input');
         const box = document.getElementById('chat-box');
         if (!input.value) return;
 
-        box.innerHTML += `<div class="message user" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-end; max-width: 80%; margin-left: auto;">${input.value}</div>`;
-
-        const query = input.value;
+        const userMsg = input.value;
+        box.innerHTML += `<div class="message user" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-end; max-width: 80%; margin-left: auto;">${userMsg}</div>`;
         input.value = '';
+        box.scrollTop = box.scrollHeight;
 
-        setTimeout(() => {
-            box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">Analizando planta... He detectado una oportunidad de optimización en T14 para Denier ${query}.</div>`;
+        try {
+            const response = await fetch('/api/ai_chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: userMsg })
+            });
+            const data = await response.json();
+            
+            box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">${data.response || data.error}</div>`;
             box.scrollTop = box.scrollHeight;
-        }, 1000);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function generateScenario() {
+        const box = document.getElementById('chat-box');
+        box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">🚀 Generando escenario de optimización automática...</div>`;
+        box.scrollTop = box.scrollHeight;
+
+        try {
+            const response = await fetch('/api/ai_scenario', { method: 'POST' });
+            const data = await response.json();
+            box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%; border-left: 4px solid var(--accent-blue);">${data.response}</div>`;
+            box.scrollTop = box.scrollHeight;
+        } catch (err) {
+            console.error(err);
+        }
     }
 </script>
 {% endblock %}
