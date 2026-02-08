@@ -149,7 +149,7 @@ Debes generar un cronograma continuo. Si una referencia termina a las 10:00 AM, 
 
 3. **Segmentación Diaria (Post-Procesamiento):**
    - Una vez tengas la "tira continua" de tiempo, CORTALA en días de 24 horas (o según disponibilidad).
-   - **Ejemplo:** Si la Ref A dura 30 horas and empieza el Día 1 a las 00:00:
+   - **Ejemplo:** Si la Ref A dura 30 horas y empieza el Día 1 a las 00:00:
      - Día 1: Ref A de 00:00 a 24:00 (28 puestos).
      - Día 2: Ref A de 00:00 a 06:00 (28 puestos) -> **CAMBIO INMEDIATO** -> Ref B de 06:00 a 24:00.
 
@@ -190,7 +190,7 @@ SALIDA = SOLO JSON (sin explicaciones, sin markdown)"""
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Especialista en scheduling industrial. Solo respondes con JSON."},
                 {"role": "user", "content": prompt}
