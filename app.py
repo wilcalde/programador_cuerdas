@@ -56,6 +56,22 @@ def backlog():
     orders = db.get_orders()
     return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders)
 
+@app.route('/backlog/add', methods=['POST'])
+def add_backlog():
+    db = DBQueries()
+    denier = request.form.get('denier')
+    kg = request.form.get('kg', type=float)
+    req_date = request.form.get('required_date')
+    
+    # Get denier_id from name
+    deniers = db.get_deniers()
+    denier_id = next((d['id'] for d in deniers if d['name'] == denier), None)
+    
+    if denier_id and kg and req_date:
+        db.create_order(denier_id, kg, req_date)
+        flash(f"Pedido de {kg}kg para Denier {denier} guardado", "success")
+    return redirect(url_for('backlog'))
+
 @app.route('/programming')
 def programming():
     db = DBQueries()

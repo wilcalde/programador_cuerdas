@@ -80,7 +80,8 @@ body {
     font-size: 1.2rem;
 }
 
-.nav-link:hover, .nav-link.active {
+.nav-link:hover,
+.nav-link.active {
     background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
     color: white;
 }
@@ -99,7 +100,9 @@ body {
     margin-bottom: 2rem;
 }
 
-h1, h2, h3 {
+h1,
+h2,
+h3 {
     color: var(--accent-blue);
     font-weight: 700;
 }
