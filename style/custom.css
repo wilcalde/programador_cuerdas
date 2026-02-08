@@ -1,0 +1,29 @@
+.stApp {
+    background-color: #0F172A;
+    color: #F8FAFC;
+    font-family: 'Montserrat', sans-serif;
+}
+section[data-testid="stSidebar"] {
+    background-color: #020617;
+}
+.stButton>button {
+    background: linear-gradient(135deg, #38BDF8, #6366F1);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+}
+[data-testid="stMetricValue"] {
+    color: #38BDF8;
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+[data-testid="stMetricLabel"] {
+    color: #94A3B8;
+    text-transform: uppercase;
+}
+h1, h2, h3 {
+    color: #38BDF8;
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+}
