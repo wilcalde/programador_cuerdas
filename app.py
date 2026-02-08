@@ -65,7 +65,94 @@ def programming():
 @app.route('/config')
 def config():
     db = DBQueries()
-    return render_template('config.html', active_page='config', title='Configuración')
+    machines = db.get_machines_torsion()
+    deniers = db.get_deniers()
+    rewinder_configs = db.get_rewinder_denier_configs()
+    machine_denier_configs = db.get_machine_denier_configs()
+    
+    # Group machine configs by machine_id
+    machine_configs_mapped = {}
+    for c in machine_denier_configs:
+        m_id = c['machine_id']
+        if m_id not in machine_configs_mapped:
+            machine_configs_mapped[m_id] = {}
+        machine_configs_mapped[m_id][str(c['denier'])] = c
+    
+    # Pre-calculate next 15 days for shifts
+    today = pd.Timestamp.now().date()
+    start_date = today + pd.Timedelta(days=1)
+    end_date = start_date + pd.Timedelta(days=14)
+    shifts = db.get_shifts(str(start_date), str(end_date))
+    
+    # Map shifts by date for easy lookup
+    shifts_dict = {str(s['date']): s['working_hours'] for s in shifts}
+    calendar = []
+    curr = start_date
+    while curr <= end_date:
+        calendar.append({
+            'date': str(curr),
+            'display_date': curr.strftime('%d/%m'),
+            'weekday': ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][curr.weekday()],
+            'hours': shifts_dict.get(str(curr), 24)
+        })
+        curr += pd.Timedelta(days=1)
+
+    return render_template('config.html', 
+                         active_page='config', 
+                         title='Configuración',
+                         machines=machines,
+                         deniers=deniers,
+                         machine_configs=machine_configs_mapped,
+                         rewinder_configs={str(c['denier']): c for c in rewinder_configs},
+                         calendar=calendar)
+
+@app.route('/config/torsion/update', methods=['POST'])
+def update_torsion():
+    db = DBQueries()
+    machine_id = request.form.get('machine_id')
+    # Fetch all denier configs from form
+    denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
+    for denier in denier_options:
+        rpm = request.form.get(f"rpm_{denier}", type=int)
+        torsiones = request.form.get(f"torsiones_{denier}", type=int)
+        husos = request.form.get(f"husos_{denier}", type=int)
+        if rpm and torsiones and husos:
+            db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)
+    flash(f"Configuración de {machine_id} actualizada", "success")
+    return redirect(url_for('config'))
+
+@app.route('/config/rewinder/update', methods=['POST'])
+def update_rewinder():
+    db = DBQueries()
+    denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
+    for denier in denier_options:
+        mp = request.form.get(f"mp_{denier}", type=float)
+        tm = request.form.get(f"tm_{denier}", type=float)
+        if mp is not None and tm is not None:
+            db.upsert_rewinder_denier_config(denier, mp, tm)
+    flash("Configuración Rewinder actualizada", "success")
+    return redirect(url_for('config'))
+
+@app.route('/config/shifts/update', methods=['POST'])
+def update_shifts():
+    db = DBQueries()
+    # Get all shift dates from form keys
+    for key, value in request.form.items():
+        if key.startswith('shift_'):
+            date_str = key.replace('shift_', '')
+            db.upsert_shift(date_str, int(value))
+    flash("Calendario de turnos actualizado", "success")
+    return redirect(url_for('config'))
+
+@app.route('/config/denier/add', methods=['POST'])
+def add_denier():
+    db = DBQueries()
+    name = request.form.get('name')
+    cycle = request.form.get('cycle', type=float)
+    if name and cycle:
+        db.create_denier(name, cycle)
+        flash(f"Denier {name} añadido", "success")
+    return redirect(url_for('config'))
 
 @app.route('/reports')
 def reports():
