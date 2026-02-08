@@ -66,3 +66,16 @@ def show_programming():
         st.subheader("📋 Análisis de Capacidad y Backlog")
         # Logic for summary table display...
         st.write("Datos de backlog cargados.")
+
+# Añade esto al final de views/admin_ui.py
+
+def show_config():
+    st.title("⚙️ Configuración del Sistema")
+    st.info("Configuración de parámetros globales para las máquinas de torsión y capacidades.")
+    
+    # Aquí puedes agregar lógica para editar las variables de las máquinas T11-T16
+    st.subheader("Parámetros de Planta")
+    with st.expander("Ver configuración de Rewinders"):
+        st.write("Capacidad total: 28 puestos disponibles.")
+    
+    st.success("Configuración cargada correctamente.")
