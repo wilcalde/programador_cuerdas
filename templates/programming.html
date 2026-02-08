@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block header_title %}📅 Programación de Producción{% endblock %}
+
+{% block content %}
+<div class="card glass" style="border-left: 4px solid var(--accent-blue);">
+    <p>💡 La programación es generada por IA basándose en el backlog y la capacidad de los 28 puestos de Rewinder disponible.</p>
+</div>
+
+<div style="margin-top: 2rem; display: flex; gap: 1rem;">
+    <button class="btn btn-primary" onclick="generateSchedule()">
+        <i class="bi bi-arrow-repeat"></i> 🔥 Recalcular Programación con IA
+    </button>
+</div>
+
+<div id="loading" style="display: none; margin-top: 2rem; text-align: center;">
+    <div class="spinner" style="border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+    <p style="margin-top: 1rem; color: #38BDF8;">🤖 IA analizando backlog y capacidades...</p>
+</div>
+
+<div id="results" style="margin-top: 2rem;">
+    <div class="card glass" style="text-align: center; padding: 3rem;">
+        <i class="bi bi-calendar-x" style="font-size: 3rem; color: #1E293B;"></i>
+        <p style="color: #94A3B8; margin-top: 1rem;">Aún no se ha generado una programación dinámica para este periodo.</p>
+    </div>
+</div>
+
+<style>
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function generateSchedule() {
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('results').innerHTML = '';
+    
+    // In a real app, this would be an AJAX call to /api/generate
+    setTimeout(() => {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('results').innerHTML = `
+            <div class="card glass" style="border-top: 4px solid #10B981;">
+                <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
+                <p style="margin-top: 1rem;">La IA ha optimizado el flujo de carga para 6 referencias.</p>
+                <div class="grid" style="margin-top: 2rem;">
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Fin Estimado</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">2024-06-15 14:00</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }, 2000);
+}
+</script>
+{% endblock %}

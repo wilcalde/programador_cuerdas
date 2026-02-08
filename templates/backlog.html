@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block header_title %}📋 Backlog de Pedidos{% endblock %}
+
+{% block content %}
+<div class="card glass" style="margin-bottom: 2.5rem;">
+    <h3>➕ Añadir Nuevo Pedido</h3>
+    <form method="POST" action="/backlog/add" style="margin-top: 1.5rem;">
+        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+            <div class="form-group">
+                <label>Referencia (Denier)</label>
+                <select name="denier" class="form-control" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <option>2000</option><option>2500</option><option>3000</option><option>4000</option>
+                    <option selected>6000</option><option>9000</option><option>12000</option><option>18000</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Cantidad (KG)</label>
+                <input type="number" name="kg" value="1.0" step="0.1" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+            </div>
+            <div class="form-group">
+                <label>Fecha Requerida</label>
+                <input type="date" name="required_date" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+            </div>
+            <div class="form-group" style="display: flex; align-items: flex-end;">
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Guardar Pedido</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card glass">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3>Detalle de Pedidos</h3>
+        <span style="background: rgba(56, 189, 248, 0.2); color: #38BDF8; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">
+            {{ orders|length }} Órdenes Pendientes
+        </span>
+    </div>
+    
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead style="border-bottom: 2px solid var(--border-color);">
+                <tr>
+                    <th style="padding: 1rem;">ID</th>
+                    <th style="padding: 1rem;">Referencia</th>
+                    <th style="padding: 1rem;">KG Totales</th>
+                    <th style="padding: 1rem;">F. Requerida</th>
+                    <th style="padding: 1rem;">Estado</th>
+                    <th style="padding: 1rem;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.05)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 1rem; color: #94A3B8; font-size: 0.8rem;">#{{ order.id[:6] }}</td>
+                    <td style="padding: 1rem; font-weight: 600;">Denier {{ order.deniers.name if order.deniers else 'N/A' }}</td>
+                    <td style="padding: 1rem;">{{ "{:,.0f}".format(order.total_kg) }} kg</td>
+                    <td style="padding: 1rem;">{{ order.required_date }}</td>
+                    <td style="padding: 1rem;">
+                        <span style="color: #6366F1;">● Pendiente</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                        <button class="bi bi-pencil" style="background: none; border: none; color: #38BDF8; margin-right: 0.5rem; cursor: pointer;"></button>
+                        <button class="bi bi-trash" style="background: none; border: none; color: #EF4444; cursor: pointer;"></button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not orders %}
+                <tr><td colspan="6" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay pedidos pendientes en el backlog.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

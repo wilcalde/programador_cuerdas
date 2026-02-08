@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block header_title %}📝 Reporte de Novedades{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+    <div class="card glass">
+        <h3>Registrar Evento</h3>
+        <form style="margin-top: 1.5rem;">
+            <div class="form-group">
+                <label>Máquina</label>
+                <select class="form-control" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <option>T11</option><option>T12</option><option>T14</option><option>T15</option><option>T16</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label>Tipo de Novedad</label>
+                <select class="form-control" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <option>Husos Dañados</option>
+                    <option>Paro por Operario</option>
+                    <option>Limpieza</option>
+                    <option>Falta de Materia Prima</option>
+                    <option>Falla Mecánica</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label>Horas de Afectación</label>
+                <input type="number" step="0.5" value="0.0" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;">
+            </div>
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label>Descripción</label>
+                <textarea style="width: 100%; height: 100px; padding: 0.75rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border-color); border-radius: 8px;"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;">Guardar Novedad</button>
+        </form>
+    </div>
+    
+    <div class="card glass">
+        <h3>Histórico de Novedades (Hoy)</h3>
+        <div style="margin-top: 1.5rem; text-align: center; padding: 3rem; color: #94A3B8;">
+            No se han registrado novedades para el turno actual.
+        </div>
+    </div>
+</div>
+{% endblock %}

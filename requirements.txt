@@ -1,9 +1,8 @@
-streamlit
+flask
 supabase
 gspread
 google-auth
 pandas
 openai
-streamlit-option-menu
 python-dotenv
 plotly

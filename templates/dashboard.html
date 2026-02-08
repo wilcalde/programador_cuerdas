@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block header_title %}📊 Dashboard de Control{% endblock %}
+
+{% block content %}
+<div class="grid">
+    <div class="card glass">
+        <div class="metric-label">Cumplimiento Plan</div>
+        <div class="metric-value">85%</div>
+        <div style="color: #10B981; font-size: 0.8rem;">↑ 2.1% vs anterior</div>
+    </div>
+    <div class="card glass">
+        <div class="metric-label">OEE Global</div>
+        <div class="metric-value">78%</div>
+        <div style="color: #EF4444; font-size: 0.8rem;">↓ 0.5% vs anterior</div>
+    </div>
+    <div class="card glass">
+        <div class="metric-label">Kg Producidos Hoy</div>
+        <div class="metric-value">1,250</div>
+        <div style="color: #38BDF8; font-size: 0.8rem;">Kg netos</div>
+    </div>
+    <div class="card glass">
+        <div class="metric-label">Backlog Pendiente</div>
+        <div class="metric-value">4,300</div>
+        <div style="color: #6366F1; font-size: 0.8rem;">Kg por programar</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-top: 2rem;">
+    <div class="card glass">
+        <h3>⏳ Carga de Trabajo por Denier</h3>
+        <div id="chart-workload" style="height: 400px;"></div>
+    </div>
+    <div class="card glass">
+        <h3>🔄 Sincronización</h3>
+        <p style="margin: 1rem 0; color: #94A3B8;">Actualiza los datos de producción desde la hoja de Google Sheets.</p>
+        <button class="btn btn-primary" style="width: 100%;">Sincronizar Sheets</button>
+        
+        <div style="margin-top: 2rem;">
+            <h3>🖥️ Estado Torsión</h3>
+            <p style="font-size: 0.8rem; color: #94A3B8;">Monitoreo de máquinas T11-T16</p>
+            <div style="margin-top: 1rem;">
+                <!-- Placeholder for dynamic table -->
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">T11: En Marcha (90%)</div>
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">T12: Mantenimiento</div>
+                <div style="padding: 1rem;">T14: En Marcha (85%)</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const data = [{
+        x: ["6000", "9000", "12000"],
+        y: [4, 7, 2],
+        type: 'bar',
+        marker: {
+            color: '#38BDF8',
+            line: { width: 1 }
+        }
+    }];
+
+    const layout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { family: 'Montserrat', color: '#F8FAFC' },
+        margin: { l: 40, r: 20, t: 20, b: 40 },
+        height: 400,
+        xaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
+        yaxis: { gridcolor: 'rgba(255,255,255,0.05)', title: 'Días Restantes' }
+    };
+
+    Plotly.newPlot('chart-workload', data, layout);
+</script>
+{% endblock %}

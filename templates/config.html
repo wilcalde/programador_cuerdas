@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block header_title %}⚙️ Configuración de Línea{% endblock %}
+
+{% block content %}
+<div class="card glass">
+    <div class="tabs" style="display: flex; gap: 2rem; border-bottom: 1px solid var(--border-color); margin-bottom: 2rem;">
+        <div class="tab-item active" style="padding-bottom: 1rem; color: var(--accent-blue); border-bottom: 2px solid var(--accent-blue); cursor: pointer;">Torsión</div>
+        <div class="tab-item" style="padding-bottom: 1rem; color: #94A3B8; cursor: pointer;">Rewinder</div>
+        <div class="tab-item" style="padding-bottom: 1rem; color: #94A3B8; cursor: pointer;">Catálogo</div>
+        <div class="tab-item" style="padding-bottom: 1rem; color: #94A3B8; cursor: pointer;">Turnos</div>
+    </div>
+
+    <div class="tab-content" id="torsion-config">
+        <h3>Configuración por Máquina y Denier</h3>
+        <p style="color: #94A3B8; margin-bottom: 2rem;">Ajusta los parámetros de RPM y T/m para el cálculo de capacidad.</p>
+        
+        <div class="card" style="background: rgba(0,0,0,0.2); border: 1px dashed var(--border-color); text-align: center; padding: 4rem;">
+            <i class="bi bi-tools" style="font-size: 3rem; color: #1E293B;"></i>
+            <p style="margin-top: 1rem; color: #94A3B8;">Selecciona una máquina para comenzar la configuración técnica.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
