@@ -103,131 +103,88 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         }
     }
     
-    prompt = f"""# ROL: ESPECIALISTA EN BALANCE DE LÍNEAS DE PRODUCCIÓN INDUSTRIAL
+    prompt = f"""# ROL: PLANIFICADOR MAESTRO DE PRODUCCIÓN (REWINDER-FIRST STRATEGY)
 
-Eres un sistema de optimización que gestiona DOS procesos interdependientes en una planta de hilados:
-1. **TORCEDORAS (T11-T16)**: 5 máquinas que producen materia prima con tasas específicas por referencia (kg/h)
-2. **REBOBINADO**: 28 puestos de trabajo operados por personas (parámetro N = máximo puestos por operario)
+Eres un motor de optimización para una planta textil. Tu objetivo supremo es MAXIMIZAR LA UTILIZACIÓN DE LOS 28 PUESTOS DE REBOBINADO.
 
-Tu misión: Generar un CRONOGRAMA EJECUTABLE día a día que:
-✅ Elimine TODO el backlog en el mínimo tiempo posible (makespan óptimo)
-✅ Mantenga FLUJO CONTINUO: producción de rebobinado ≤ capacidad de torcedoras (nunca exceder)
-✅ Evite TIEMPO OCIOSO en ambas líneas (rebobinado siempre trabajando)
-✅ Respete restricciones de operarios: Operarios_necesarios = ceil(Puestos_asignados / N)
-✅ Priorice referencias por SPT (mayor kg/h de rebobinado primero) para minimizar flow time
-✅ Especifique HORAS EXACTAS de cambio de referencia (formato HH:MM) sin ambigüedades
+## 🎯 OBJETIVO PRINCIPAL: "COPAR LOS REWINDERS"
+Tu métrica de éxito es que los 28 puestos de rebobinado estén produciendo el mayor tiempo posible.
+- **Prioridad 1:** Mantener los 28 puestos ocupados 24/7.
+- **Prioridad 2:** Cumplir con las restricciones físicas de las Torcedoras.
+- **Prioridad 3:** Minimizar el backlog según orden SPT.
 
-## 🔑 DATOS DE ENTRADA (USAR EXACTAMENTE ESTOS)
+**NOTA IMPORTANTE:** Se permite (y se espera) que las máquinas Torcedoras (T11-T16) tengan tiempo ocioso si su velocidad es superior a la del rebobinado. No intentes optimizar las torcedoras; optimiza los operarios y puestos de rebobinado.
+
+## ⚠️ REGLAS DE ASIGNACIÓN DE CAPACIDAD
+
+1. **REFERENCIAS DE ALTO DENIER (>= 12000):**
+   - **Mandato:** ASIGNAR SIEMPRE 28 PUESTOS.
+   - Asumimos que existe buffer o capacidad suficiente. El objetivo es evacuar este material lo más rápido posible.
+
+2. **REFERENCIAS ESTÁNDAR (< 12000):**
+   - Calcular capacidad máxima soportada por las torcedoras:
+     `Max_Posible = FLOOR(Capacidad_Total_Torcedoras / Tasa_Rebobinado)`
+   - **Si Max_Posible >= 28:** ASIGNAR 28 PUESTOS.
+   - **Si Max_Posible < 28:** Asignar `Max_Posible` (limitación física real), pero intentar programar inmediatamente otra referencia en los puestos libres si la lógica de tu software lo permite (o asumir ocupación máxima del recurso disponible).
+
+## ⚙️ ALGORITMO DE LLENADO DE DÍAS (TETRIS TEMPORAL)
+
+Debes generar un cronograma continuo. Si una referencia termina a las 10:00 AM, la siguiente DEBE comenzar a las 10:00 AM.
+
+### PASO A PASO:
+1. **Inicializar:**
+   - `Tiempo_Actual` = Fecha Inicio (ej. 2026-02-09 00:00).
+   - `Lista_Pendientes` = Referencias ordenadas por prioridad SPT.
+
+2. **Bucle de Asignación (Mientras exista Backlog):**
+   - Tomar la primera referencia de `Lista_Pendientes`.
+   - Calcular `Puestos_Activos` (según reglas arriba).
+   - Calcular `Tasa_Produccion_Hora` = Puestos_Activos * Kg_Hora_Maquina.
+   - Calcular `Duracion_Total_Horas` = Backlog_Kg / Tasa_Produccion_Hora.
+   - **Registrar Bloque:**
+     - `Inicio` = Tiempo_Actual.
+     - `Fin` = Tiempo_Actual + Duracion_Total_Horas.
+   - Actualizar `Tiempo_Actual` = `Fin`.
+   - Eliminar referencia de la lista y repetir.
+
+3. **Segmentación Diaria (Post-Procesamiento):**
+   - Una vez tengas la "tira continua" de tiempo, CORTALA en días de 24 horas (o según disponibilidad).
+   - **Ejemplo:** Si la Ref A dura 30 horas and empieza el Día 1 a las 00:00:
+     - Día 1: Ref A de 00:00 a 24:00 (28 puestos).
+     - Día 2: Ref A de 00:00 a 06:00 (28 puestos) -> **CAMBIO INMEDIATO** -> Ref B de 06:00 a 24:00.
+
+## 📥 DATOS DE ENTRADA
 {json.dumps(context_data, indent=2, ensure_ascii=False)}
 
-## ⚙️ ALGORITMO DE ASIGNACIÓN (EJECUTAR EN ORDEN ESTRICTO)
-
-### Paso 1: Pre-cálculo de capacidades máximas por referencia
-PARA CADA referencia:
-Capacidad_torcedora_total = SUMA(tasas_kg/h de torcedoras compatibles) 
-Max_puestos_rebobinado = MIN(28, floor(Capacidad_torcedora_total / kg/h_rebobinado)) 
-Operarios_minimos = ceil(Max_puestos_rebobinado / N)
-
-### Paso 2: Inicialización
-- Hora_acumulada = 0.0 (horas desde inicio el 2026-02-09 00:00)
-- Orden_prioridad = (SPT: mayor kg/h primero)
-
-### Paso 3: Bucle de asignación día a día
-PARA CADA DÍA con Horas_disponibles > 0:
-  a. Hora_inicio_dia = Hora_acumulada
-  b. Hora_fin_dia = Hora_inicio_dia + Horas_disponibles
-  c. MIENTRAS Hora_acumulada < Hora_fin_dia Y existan referencias con backlog > 0:
-      i. Seleccionar siguiente referencia en Orden_prioridad con backlog > 0
-      ii. Obtener Max_puestos para esta referencia (Paso 1)
-      iii. Calcular horas_necesarias = Backlog[ref] / (Max_puestos × kg/h_rebobinado)
-      iv. Si horas_necesarias ≤ (Hora_fin_dia - Hora_acumulada):
-           - Asignar bloque completo:
-             * Hora_inicio_bloque = Hora_acumulada
-             * Hora_fin_bloque = Hora_acumulada + horas_necesarias
-             * Backlog[ref] = 0
-             * Hora_acumulada = Hora_fin_bloque
-      v. Si horas_necesarias > (Hora_fin_dia - Hora_acumulada):
-           - Asignar bloque parcial:
-             * Hora_inicio_bloque = Hora_acumulada
-             * Hora_fin_bloque = Hora_fin_dia
-             * Kg_producidos = Max_puestos × kg/h_rebobinado × (Hora_fin_dia - Hora_acumulada)
-             * Backlog[ref] -= Kg_producidos
-             * Hora_acumulada = Hora_fin_dia → SALIR bucle interno (día terminado)
-
-### Paso 4: Calcular horas de torcedoras para CADA bloque
-PARA CADA bloque asignado:
-Kg_a_producir = Max_puestos × kg/h_rebobinado × Horas_bloque 
-PARA CADA torcedora compatible: Horas_torcedora = Kg_a_producir × (Tasa_torcedora / Capacidad_torcedora_total)
-
-### Paso 5: Validaciones OBLIGATORIAS (ejecutar antes de salida)
-✅ Check 1: Para TODO bloque → Producción_rebobinado ≤ Capacidad_torcedoras
-✅ Check 2: NO hay tiempo ocioso entre bloques (Hora_fin_bloque_n = Hora_inicio_bloque_n+1)
-✅ Check 3: Backlog final = 0 para TODAS las referencias
-✅ Check 4: Makespan_final = Total_horas_máq_requeridas / Puestos_promedio (±2% tolerancia)
-✅ Check 5: Operarios_necesarios ≤ Operarios_disponibles (asumir ≥10 operarios si no especificado)
-
-## 📤 FORMATO DE SALIDA OBLIGATORIO (JSON ESTRUCTURADO - SIN TEXTO ADICIONAL)
+## 📤 FORMATO DE SALIDA (JSON ESTRUCTURADO - SIN TEXTO ADICIONAL)
+Genera UNICAMENTE el siguiente JSON. Asegúrate de que los días estén "llenos" (sin huecos vacíos).
 
 {{
-  "resumen_ejecutivo": {{
-    "makespan_total_horas": val,
-    "makespan_fecha_hora_final": "YYYY-MM-DD HH:MM",
-    "total_kg_producidos": val,
-    "eficiencia_flujo": "100%",
-    "operarios_maximos_requeridos": val
+  "resumen_global": {{
+    "total_dias_programados": int,
+    "fecha_finalizacion_total": "YYYY-MM-DD HH:MM",
+    "comentario_estrategia": "Estrategia Max-Rewinder aplicada. Torcedoras operando bajo demanda."
   }},
-  "tabla_finalizacion_referencias": [
-    {{
-      "referencia": "id",
-      "backlog_inicial_kg": val,
-      "fecha_finalizacion": "YYYY-MM-DD",
-      "hora_dia_finalizacion": "HH:MM",
-      "horas_acumuladas_desde_inicio": val,
-      "puestos_utilizados": val,
-      "operarios_utilizados": val
-    }}
-  ],
   "cronograma_diario": [
     {{
-      "dia_calendario": "YYYY-MM-DD",
-      "horas_disponibles": val,
-      "bloques_asignacion": [
+      "fecha": "YYYY-MM-DD",
+      "turnos_asignados": [
         {{
-          "bloque_numero": val,
-          "referencia": "id",
-          "hora_inicio_dia": "HH:MM",
-          "hora_fin_dia": "HH:MM",
-          "horas_bloque": val,
-          "puestos_rebobinado": val,
-          "operarios_necesarios": val,
-          "torcedoras_utilizadas": [
-            {{"torcedora": "id", "horas_operacion": val, "kg_producidos": val}}
-          ],
-          "kg_producidos_bloque": val,
-          "backlog_restante_post_bloque": val
+          "orden_secuencia": 1,
+          "referencia": int,
+          "hora_inicio": "HH:MM",
+          "hora_fin": "HH:MM",
+          "puestos_utilizados": int,
+          "operarios_calculados": int,
+          "kg_producidos": float,
+          "torcedoras_implicadas": [
+             {{"maquina": "T11", "estado": "Activa/Ociosa", "horas_uso": float}}
+          ]
         }}
-      ],
-      "estado_fin_dia": {{
-        "backlog_total_restante_kg": val,
-        "referencias_pendientes": ["id1", "id2"]
-      }}
+      ]
     }}
-  ],
-  "validaciones_ejecutadas": {{
-    "check1_flujo_continuo": "PASSED",
-    "check2_sin_tiempo_ocioso": "PASSED",
-    "check3_backlog_cero": "PASSED",
-    "check4_makespan_optimo": "PASSED",
-    "check5_restriccion_operarios": "PASSED"
-  }}
+  ]
 }}
-
-## ⚠️ REGLAS DE ORO (VIOLAR = FALLA CRÍTICA)
-1. NUNCA asignar más puestos de rebobinado que: floor(Capacidad_torcedoras / kg/h_rebobinado)
-2. SIEMPRE especificar hora_inicio_dia y hora_fin_dia en formato HH:MM (ej.: "15:22")
-3. NUNCA dejar horas disponibles sin asignar (si el día tiene 24h y terminas a las 15:00 → asignar otra referencia hasta las 24:00)
-4. SIEMPRE calcular horas de torcedoras con fórmula exacta (no aproximar)
-5. SI cualquier validación falla → RECHAZAR salida y RECALCULAR con temperatura=0.3
 
 SALIDA = SOLO JSON (sin explicaciones, sin markdown)"""
     

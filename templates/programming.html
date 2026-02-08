@@ -65,61 +65,59 @@
             }
 
             const scenario = data.scenario;
-            const res = scenario.resumen_ejecutivo;
+            const res = scenario.resumen_global;
 
             let html = `
             <div class="card glass" style="border-top: 4px solid #10B981; margin-bottom: 2rem;">
                 <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
-                <p style="margin-top:0.5rem; color: #94A3B8;">Optimizado por IA - Balance de Flujo Continuo</p>
+                <p style="margin-top:0.5rem; color: #94A3B8;">${res.comentario_estrategia}</p>
                 <div class="grid" style="margin-top: 2rem;">
                     <div class="card" style="background: rgba(0,0,0,0.2);">
                         <div class="metric-label">Fin Estimado</div>
-                        <div class="metric-value" style="font-size: 1.2rem;">${res.makespan_fecha_hora_final}</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.fecha_finalizacion_total}</div>
                     </div>
                     <div class="card" style="background: rgba(0,0,0,0.2);">
-                        <div class="metric-label">Total Producido</div>
-                        <div class="metric-value" style="font-size: 1.2rem;">${res.total_kg_producidos} kg</div>
-                    </div>
-                    <div class="card" style="background: rgba(0,0,0,0.2);">
-                        <div class="metric-label">Eficiencia Flujo</div>
-                        <div class="metric-value" style="font-size: 1.2rem;">${res.eficiencia_flujo}</div>
+                        <div class="metric-label">Días Programados</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.total_dias_programados}</div>
                     </div>
                 </div>
             </div>
 
-            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Detallado</h2>
+            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario (Rewinder-First)</h2>
             `;
 
             scenario.cronograma_diario.forEach(dia => {
                 html += `
                 <div class="card glass" style="margin-bottom: 1.5rem;">
                     <h3 style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
-                        📅 ${dia.dia_calendario} (${dia.horas_disponibles}h)
+                        📅 ${dia.fecha}
                     </h3>
                     <div style="overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse; text-align: left;">
                             <thead>
                                 <tr style="color: var(--accent-blue); border-bottom: 1px solid var(--border-color);">
-                                    <th style="padding: 0.5rem;">Bloque</th>
+                                    <th style="padding: 0.5rem;">#</th>
                                     <th style="padding: 0.5rem;">Referencia</th>
                                     <th style="padding: 0.5rem;">Inicio</th>
                                     <th style="padding: 0.5rem;">Fin</th>
                                     <th style="padding: 0.5rem;">Puestos</th>
+                                    <th style="padding: 0.5rem;">Operarios</th>
                                     <th style="padding: 0.5rem;">Kg</th>
                                 </tr>
                             </thead>
                             <tbody>
                 `;
 
-                dia.bloques_asignacion.forEach(b => {
+                dia.turnos_asignados.forEach(b => {
                     html += `
                         <tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 0.75rem;">${b.bloque_numero}</td>
+                            <td style="padding: 0.75rem;">${b.orden_secuencia}</td>
                             <td style="padding: 0.75rem;"><strong>${b.referencia}</strong></td>
-                            <td style="padding: 0.75rem;">${b.hora_inicio_dia}</td>
-                            <td style="padding: 0.75rem;">${b.hora_fin_dia}</td>
-                            <td style="padding: 0.75rem;">${b.puestos_rebobinado}</td>
-                            <td style="padding: 0.75rem;">${Math.round(b.kg_producidos_bloque)} kg</td>
+                            <td style="padding: 0.75rem;">${b.hora_inicio}</td>
+                            <td style="padding: 0.75rem;">${b.hora_fin}</td>
+                            <td style="padding: 0.75rem;">${b.puestos_utilizados}</td>
+                            <td style="padding: 0.75rem;">${b.operarios_calculados}</td>
+                            <td style="padding: 0.75rem;">${Math.round(b.kg_producidos)} kg</td>
                         </tr>
                     `;
                 });
