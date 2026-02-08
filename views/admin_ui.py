@@ -64,18 +64,34 @@ def show_programming():
     
     if orders:
         st.subheader("📋 Análisis de Capacidad y Backlog")
-        # Logic for summary table display...
         st.write("Datos de backlog cargados.")
-
-# Añade esto al final de views/admin_ui.py
 
 def show_config():
     st.title("⚙️ Configuración del Sistema")
-    st.info("Configuración de parámetros globales para las máquinas de torsión y capacidades.")
+    st.markdown("---")
     
-    # Aquí puedes agregar lógica para editar las variables de las máquinas T11-T16
-    st.subheader("Parámetros de Planta")
-    with st.expander("Ver configuración de Rewinders"):
-        st.write("Capacidad total: 28 puestos disponibles.")
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Torsión", "🔄 Rewinder", "📖 Catálogo Deniers", "🕒 Turnos"])
     
-    st.success("Configuración cargada correctamente.")
+    with tab1:
+        st.header("Configuración por Máquina y Denier")
+        maquinas = ["T14", "T15", "T16", "T11", "T12"]
+        
+        for m in maquinas:
+            with st.expander(f"🏭 Máquina {m}", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.number_input(f"Eficiencia (%)", value=90.0, key=f"eff_{m}")
+                with c2:
+                    st.number_input(f"Velocidad (m/min)", value=150.0, key=f"vel_{m}")
+                with c3:
+                    st.number_input(f"Capacidad (Kg/h)", value=25.0, key=f"cap_{m}")
+        
+        if st.button("💾 Guardar Cambios de Torsión", use_container_width=True):
+            st.toast("Configuración de torsión guardada temporalmente.")
+
+    with tab2:
+        st.subheader("Capacidad de Puestos")
+        st.metric("Rewinders Totales", "28 Puestos")
+        st.slider("Puestos Operativos hoy", 0, 28, 28, help="Ajuste según disponibilidad de personal.")
+
+    st.success("✅ Interfaz de configuración sincronizada.")
