@@ -75,23 +75,41 @@ def show_config():
     with tab1:
         st.header("Configuración por Máquina y Denier")
         maquinas = ["T14", "T15", "T16", "T11", "T12"]
+        deniers_list = [2000, 2500, 3000, 4000, 6000, 9000, 12000, 18000]
         
         for m in maquinas:
-            with st.expander(f"🏭 Máquina {m}", expanded=False):
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.number_input(f"Eficiencia (%)", value=90.0, key=f"eff_{m}")
-                with c2:
-                    st.number_input(f"Velocidad (m/min)", value=150.0, key=f"vel_{m}")
-                with c3:
-                    st.number_input(f"Capacidad (Kg/h)", value=25.0, key=f"cap_{m}")
-        
-        if st.button("💾 Guardar Cambios de Torsión", use_container_width=True):
-            st.toast("Configuración de torsión guardada temporalmente.")
+            with st.expander(f"🏭 Máquina {m}", expanded=(m == "T14")):
+                st.write(f"**Configuraciones por Denier para {m}**")
+                
+                # Encabezados de la tabla técnica
+                cols_head = st.columns([2, 2, 2, 2, 2])
+                cols_head[0].write("**Denier**")
+                cols_head[1].write("**RPM**")
+                cols_head[2].write("**T/m**")
+                cols_head[3].write("**Husos**")
+                cols_head[4].write("**Kg/h Calculado**")
+
+                for d in deniers_list:
+                    c = st.columns([2, 2, 2, 2, 2])
+                    c[0].write(f"{d}")
+                    
+                    # Inputs numéricos con llaves únicas
+                    rpm = c[1].number_input("RPM", value=0, key=f"rpm_{m}_{d}", label_visibility="collapsed")
+                    tm = c[2].number_input("T/m", value=0, key=f"tm_{m}_{d}", label_visibility="collapsed")
+                    husos = c[3].number_input("Husos", value=0, key=f"husos_{m}_{d}", label_visibility="collapsed")
+                    
+                    # Lógica de cálculo (puedes usar tus funciones de logic.formulas)
+                    # Ejemplo de cálculo simple: (RPM / T/m) * (60 / 1000) * (Denier / 9000) * Husos
+                    if tm > 0:
+                        kg_h = (rpm / tm) * 0.06 * (d / 9000) * husos
+                        c[4].write(f"**{kg_h:.2f} Kg/h**")
+                    else:
+                        c[4].write("•")
 
     with tab2:
-        st.subheader("Capacidad de Puestos")
-        st.metric("Rewinders Totales", "28 Puestos")
-        st.slider("Puestos Operativos hoy", 0, 28, 28, help="Ajuste según disponibilidad de personal.")
+        st.subheader("Capacidad de Puestos Rewinder")
+        st.metric("Puestos Totales", "28")
+        st.slider("Disponibilidad Operativa", 0, 28, 28)
 
-    st.success("✅ Interfaz de configuración sincronizada.")
+    st.success("✅ Interfaz técnica sincronizada con el modelo de Ciplas.")
+
