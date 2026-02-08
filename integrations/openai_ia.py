@@ -114,17 +114,28 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             # --- CÁLCULO DE SUMINISTRO (Upstream - Torcedoras) ---
             # Las torcedoras deben trabajar para reponer kg_producidos_bloque
             t_cap = torsion_capacities.get(ref_name, {})
-            vel_total_torsion = t_cap.get('total_kgh', 50) # Use 50 as fallback if no data
-            if vel_total_torsion <= 0: vel_total_torsion = 50
+            machines_data = t_cap.get('machines', [])
             
-            # Horas que el GRUPO de torcedoras debe trabajar para este tramo
+            if not machines_data:
+                # Fallback if no specific machines are configured
+                machines_data = [{"machine_id": "T-Gen", "kgh": 50}]
+            
+            # Capacidad conjunta de todas las máquinas compatibles para esta referencia
+            vel_total_torsion = sum(m.get('kgh', 0) for m in machines_data)
+            if vel_total_torsion <= 0: vel_total_torsion = 50 # Final fallback
+            
+            # Horas que el GRUPO de máquinas debe trabajar SIMULTÁNEAMENTE
             horas_torsion_suministro = kg_producidos_bloque / vel_total_torsion
             
             detalle_suministro = []
-            for m in t_cap.get('machines', [{"machine_id": "T-Gen", "kgh": vel_total_torsion}]):
+            for m in machines_data:
+                v_maq = m.get('kgh', 0)
+                if v_maq <= 0 and len(machines_data) == 1: v_maq = 50 # Fallback for T-Gen
+                
                 detalle_suministro.append({
-                    "maquina": m['machine_id'],
+                    "maquina": m.get('machine_id', 'T-UKN'),
                     "horas": round(horas_torsion_suministro, 2),
+                    "kg_aportados": round(horas_torsion_suministro * v_maq, 2),
                     "ref": ref_name
                 })
             
@@ -152,8 +163,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
 
             # Acumular requerimiento de abastecimiento del día
             dia_entry["requerimiento_abastecimiento"]["kg_totales_demandados"] += kg_producidos_bloque
-            # Nota: las horas de producción conjunta es el máximo de horas de suministro de las refs del día?
-            # En este caso, para simplificar según prompt: acumulamos detalles
             dia_entry["requerimiento_abastecimiento"]["detalle_torcedoras"].extend(detalle_suministro)
             # Metricas del día
             dia_entry["metricas_dia"]["operarios_maximos"] = max(dia_entry["metricas_dia"]["operarios_maximos"], operarios_reales)
@@ -163,6 +172,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             if fin_bloque == "24:00":
                 current_time = (current_time + timedelta(minutes=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
+        # Registro de finalización por referencia
         tabla_finalizacion.append({
             "referencia": ref_name,
             "fecha_finalizacion": (current_time - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M"),
@@ -173,10 +183,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     # Calcular horas_produccion_conjunta diaria final
     for dia in cronograma_final:
         dia["requerimiento_abastecimiento"]["kg_totales_demandados"] = round(dia["requerimiento_abastecimiento"]["kg_totales_demandados"], 2)
-        # Horas conjuntas es la duración total del trabajo de torcedoras ese día
-        # Según lógica: Kg_Dia / Cap_Conjunta_Promedio_Dia? Simplifiquemos a suma de horas por bloque
         unique_refs = {d['ref'] for d in dia["requerimiento_abastecimiento"]["detalle_torcedoras"]}
-        # Realizamos un cálculo más preciso para el reporte
         dia["requerimiento_abastecimiento"]["horas_produccion_conjunta"] = round(sum(t['horas'] for t in dia["requerimiento_abastecimiento"]["detalle_torcedoras"]) / max(len(unique_refs), 1), 2)
 
     # 5. Graph Data Generation
