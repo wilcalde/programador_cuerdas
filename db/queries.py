@@ -191,3 +191,14 @@ class DBQueries:
             "torsion_capacities": torsion_capacities,
             "shifts": self.get_shifts() # Fetch all defined shifts
         }
+
+    # --- Saved Schedules ---
+    def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]):
+        data = {
+            "scenario_name": name,
+            "plan_data": plan_data
+        }
+        return self.supabase.table("scheduling_scenarios").insert(data).execute()
+
+    def get_saved_schedules(self, limit: int = 10):
+        return self.supabase.table("scheduling_scenarios").select("*").order("created_at", desc=True).limit(limit).execute()

@@ -38,7 +38,12 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
 <script>
+    let currentPlan = null;
+
     async function generateSchedule() {
         document.getElementById('loading').style.display = 'block';
         document.getElementById('results').innerHTML = '';
@@ -65,12 +70,25 @@
             }
 
             const scenario = data.scenario;
+            currentPlan = scenario;
             const res = scenario.resumen_global;
 
             let html = `
             <div class="card glass" style="border-top: 4px solid #10B981; margin-bottom: 2rem;">
-                <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
-                <p style="margin-top:0.5rem; color: #94A3B8;">${res.comentario_estrategia}</p>
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
+                        <p style="margin-top:0.5rem; color: #94A3B8;">${res.comentario_estrategia}</p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="savePlan()" style="padding: 0.5rem 1rem; font-size: 0.8rem;">
+                            <i class="bi bi-save"></i> Guardar Plan
+                        </button>
+                        <button class="btn btn-primary" onclick="exportToPDF()" style="padding: 0.5rem 1rem; font-size: 0.8rem; background: #3B82F6;">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
                 <div class="grid" style="margin-top: 2rem;">
                     <div class="card" style="background: rgba(0,0,0,0.2);">
                         <div class="metric-label">Fin Estimado</div>
@@ -81,6 +99,36 @@
                         <div class="metric-value" style="font-size: 1.2rem;">${res.total_dias_programados}</div>
                     </div>
                 </div>
+            </div>
+
+            <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
+            <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #38BDF8;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 0.75rem;">Referencia</th>
+                            <th style="padding: 0.75rem;">Fecha de Terminación</th>
+                            <th style="padding: 0.75rem;">Puestos Promedio</th>
+                            <th style="padding: 0.75rem;">Total Kg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            scenario.tabla_finalizacion_referencias.forEach(row => {
+                html += `
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.75rem;"><strong>${row.referencia}</strong></td>
+                        <td style="padding: 0.75rem; color: #10B981;">📅 ${row.fecha_finalizacion}</td>
+                        <td style="padding: 0.75rem;">${row.puestos_promedio}</td>
+                        <td style="padding: 0.75rem;">${Math.round(row.kg_totales)} kg</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
             </div>
 
             <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario (Rewinder-First)</h2>
@@ -140,7 +188,86 @@
                     <p style="margin-top: 1rem;">No se pudo conectar con el servidor.</p>
                 </div>
             `;
+            console.error(err);
         }
+    }
+
+    async function savePlan() {
+        if (!currentPlan) return;
+        
+        try {
+            const response = await fetch('/api/save_schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: `Plan ${new Date().toLocaleDateString()}`, plan: currentPlan })
+            });
+            const res = await response.json();
+            if (res.success) alert("✅ Plan guardado exitosamente");
+            else alert("❌ Error: " + res.error);
+        } catch (err) {
+            alert("❌ Error de red");
+        }
+    }
+
+    function exportToPDF() {
+        if (!currentPlan) return;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'pt', 'a4');
+        
+        // Header
+        doc.setFontSize(18);
+        doc.setTextColor(40);
+        doc.text("Plan de Producción - Ciplas", 40, 40);
+        
+        doc.setFontSize(10);
+        doc.text(`Generado: ${new Date().toLocaleString()}`, 40, 60);
+        doc.text(`Fin Total: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 40, 75);
+
+        // Summary Table
+        doc.setFontSize(14);
+        doc.text("Resumen por Referencia", 40, 110);
+        
+        const summaryData = currentPlan.tabla_finalizacion_referencias.map(r => [
+            r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales) + " kg"
+        ]);
+        
+        doc.autoTable({
+            startY: 120,
+            head: [['Referencia', 'Finalización', 'Puestos Prom.', 'Kg Totales']],
+            body: summaryData,
+            theme: 'grid',
+            headStyles: { fillColor: [56, 189, 248] }
+        });
+
+        // Daily Detail
+        let currentY = doc.lastAutoTable.finalY + 30;
+        doc.setFontSize(14);
+        doc.text("Cronograma Diario Detallado", 40, currentY);
+        currentY += 10;
+
+        currentPlan.cronograma_diario.forEach(dia => {
+            if (currentY > 750) { doc.addPage(); currentY = 40; }
+            
+            doc.setFontSize(11);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Fecha: ${dia.fecha}`, 40, currentY + 15);
+            
+            const rows = dia.turnos_asignados.map(t => [
+                t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos)
+            ]);
+            
+            doc.autoTable({
+                startY: currentY + 20,
+                head: [['#', 'Ref', 'Inicio', 'Fin', 'Puestos', 'Oper.', 'Kg']],
+                body: rows,
+                theme: 'striped',
+                headStyles: { fillColor: [16, 185, 129] }
+            });
+            
+            currentY = doc.lastAutoTable.finalY + 20;
+        });
+
+        doc.save(`Plan_Produccion_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 </script>
 {% endblock %}

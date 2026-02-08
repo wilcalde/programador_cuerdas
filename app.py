@@ -134,6 +134,22 @@ def api_ai_scenario():
     scenario = get_ai_optimization_scenario(orders, reports)
     return jsonify({"response": scenario})
 
+@app.route('/api/save_schedule', methods=['POST'])
+def api_save_schedule():
+    data = request.json
+    name = data.get('name', 'Programación IA')
+    plan = data.get('plan')
+    
+    if not plan:
+        return jsonify({"error": "No hay plan para guardar"}), 400
+        
+    db = DBQueries()
+    try:
+        db.save_scheduling_scenario(name, plan)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/config')
 def config():
     db = DBQueries()

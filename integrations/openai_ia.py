@@ -165,6 +165,14 @@ Genera UNICAMENTE el siguiente JSON. Asegúrate de que los días estén "llenos"
     "fecha_finalizacion_total": "YYYY-MM-DD HH:MM",
     "comentario_estrategia": "Estrategia Max-Rewinder aplicada. Torcedoras operando bajo demanda."
   }},
+  "tabla_finalizacion_referencias": [
+    {{
+      "referencia": int,
+      "fecha_finalizacion": "YYYY-MM-DD HH:MM",
+      "puestos_promedio": int,
+      "kg_totales": float
+    }}
+  ],
   "cronograma_diario": [
     {{
       "fecha": "YYYY-MM-DD",
