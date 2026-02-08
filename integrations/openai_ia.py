@@ -94,8 +94,17 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 "fecha": s.get('date'),
                 "horas_disponibles": s.get('working_hours', 24)
             })
+
+    # Prepare rewinder master table data (metadata)
+    tabla_maestras_rewinder = {}
+    for denier, cap in rewinder_capacities.items():
+        tabla_maestras_rewinder[denier] = {
+            "kg_hora": cap.get("kg_per_hour", 0),
+            "n_maq_operario": cap.get("n_optimo", 0)
+        }
     
     context_data = {
+        "tabla_maestras_rewinder": tabla_maestras_rewinder,
         "referencias_backlog": references_data,
         "calendario_turnos": calendar_data,
         "restricciones_globales": {
@@ -105,7 +114,11 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     
     prompt = f"""# ROL: PLANIFICADOR MAESTRO DE PRODUCCIÓN (REWINDER-FIRST STRATEGY)
 
-Eres un motor de optimización para una planta textil. Tu objetivo supremo es MAXIMIZAR LA UTILIZACIÓN DE LOS 28 PUESTOS DE REBOBINADO.
+Eres un motor de optimización para una planta textil. Tu objetivo supremo es MAXIMIZAR LA UTILIZACIÓN DE LOS 28 PUESTOS DE REBOBINADO basándote en las capacidades técnicas reales.
+
+## 📊 CAPACIDADES TÉCNICAS (TABLA MAESTRA)
+Usa SIEMPRE estos valores para tus cálculos de tiempo y operarios:
+{json.dumps(tabla_maestras_rewinder, indent=2, ensure_ascii=False)}
 
 ## 🎯 OBJETIVO SUPREMO: "REWINDER-FIRST & ZERO IDLE TIME"
 Tu única métrica de éxito es la OCUPACIÓN TOTAL de los 28 puestos de rebobinado.
