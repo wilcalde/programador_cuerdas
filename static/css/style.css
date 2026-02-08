@@ -156,6 +156,44 @@ h3 {
     transform: scale(0.98);
 }
 
+/* Forms */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--accent-blue);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+}
+
+.form-control, .input-field {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-color);
+    font-family: inherit;
+    font-size: 1rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+body.light-mode .form-control, 
+body.light-mode .input-field {
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+}
+
+.form-control:focus, .input-field:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
 /* UTILS */
 .glass {
     background: rgba(255, 255, 255, 0.05);

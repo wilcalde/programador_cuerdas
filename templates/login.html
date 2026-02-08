@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,39 +13,72 @@
             align-items: center;
             background: radial-gradient(circle at top right, #1E293B, #0F172A);
         }
+
         .login-card {
             width: 100%;
             max-width: 400px;
             padding: 3rem 2rem;
             text-align: center;
         }
-        .login-card h1 { margin-bottom: 0.5rem; }
-        .login-card p { color: #94A3B8; margin-bottom: 2rem; }
-        .form-group { text-align: left; margin-bottom: 1.5rem; }
-        label { display: block; margin-bottom: 0.5rem; color: #38BDF8; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+
+        .login-card h1 {
+            margin-bottom: 0.5rem;
+        }
+
+        .login-card p {
+            color: #94A3B8;
+            margin-bottom: 2rem;
+        }
+
+        .form-group {
+            text-align: left;
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #38BDF8;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
         input {
             width: 100%;
             padding: 0.75rem 1rem;
-            background: rgba(255,255,255,0.05);
+            background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            color: white;
+            color: var(--text-color);
             font-family: inherit;
         }
-        .alert-error { color: #EF4444; margin-bottom: 1rem; font-size: 0.9rem; }
+
+        body.light-mode input {
+            background: white;
+            color: #1E293B;
+            border-color: #CBD5E1;
+        }
+
+        .alert-error {
+            color: #EF4444;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
-<body>
+
+<body class="{% if session.get('theme') == 'light' %}light-mode{% endif %}">
     <div class="card login-card glass">
         <h2>Ciplas AI-Master Cord</h2>
         <p>Industrial Optimization System</p>
-        
+
         {% with messages = get_flashed_messages(category_filter=["error"]) %}
-          {% if messages %}
-            {% for message in messages %}
-              <div class="alert-error">{{ message }}</div>
-            {% endfor %}
-          {% endif %}
+        {% if messages %}
+        {% for message in messages %}
+        <div class="alert-error">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
         {% endwith %}
 
         <form method="POST">
@@ -58,10 +92,11 @@
             </div>
             <button type="submit" class="btn btn-primary" style="width: 100%;">ENTRAR AL PANEL</button>
         </form>
-        
+
         <div style="margin-top: 2rem; font-size: 0.8rem; color: #64748B;">
             Solo personal autorizado del Master Planning o Supervisión.
         </div>
     </div>
 </body>
+
 </html>

@@ -5,14 +5,15 @@
 {% block content %}
 <div class="card glass" style="height: 60vh; display: flex; flex-direction: column;">
     <div id="chat-box" style="flex-grow: 1; overflow-y: auto; padding: 1rem;">
-        <div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">
+        <div class="message assistant"
+            style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">
             ¿Cómo optimizamos hoy? Estoy listo para analizar tu backlog y planta.
         </div>
     </div>
-    
+
     <div style="padding: 1.5rem; border-top: 1px solid var(--border-color);">
         <div style="display: flex; gap: 1rem;">
-            <input type="text" id="user-input" placeholder="Pregunta algo sobre la producción..." style="flex-grow: 1; padding: 0.75rem 1rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; color: white;">
+            <input type="text" id="user-input" placeholder="Pregunta algo sobre la producción..." class="form-control" style="flex-grow: 1;">
             <button class="btn btn-primary" onclick="sendMessage()">Enviar</button>
         </div>
     </div>
@@ -27,20 +28,20 @@
 
 {% block scripts %}
 <script>
-function sendMessage() {
-    const input = document.getElementById('user-input');
-    const box = document.getElementById('chat-box');
-    if (!input.value) return;
+    function sendMessage() {
+        const input = document.getElementById('user-input');
+        const box = document.getElementById('chat-box');
+        if (!input.value) return;
 
-    box.innerHTML += `<div class="message user" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-end; max-width: 80%; margin-left: auto;">${input.value}</div>`;
-    
-    const query = input.value;
-    input.value = '';
-    
-    setTimeout(() => {
-        box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">Analizando planta... He detectado una oportunidad de optimización en T14 para Denier ${query}.</div>`;
-        box.scrollTop = box.scrollHeight;
-    }, 1000);
-}
+        box.innerHTML += `<div class="message user" style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-end; max-width: 80%; margin-left: auto;">${input.value}</div>`;
+
+        const query = input.value;
+        input.value = '';
+
+        setTimeout(() => {
+            box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">Analizando planta... He detectado una oportunidad de optimización en T14 para Denier ${query}.</div>`;
+            box.scrollTop = box.scrollHeight;
+        }, 1000);
+    }
 </script>
 {% endblock %}
