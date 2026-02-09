@@ -3,30 +3,26 @@
 {% block header_title %}📋 Backlog de Pedidos{% endblock %}
 
 {% block content %}
-<div class="card glass">
-    <h3>Añadir Nuevo Pedido</h3>
-    <form action="/backlog/add" method="POST" style="margin-top: 1.5rem;">
+<div class="card glass" style="margin-bottom: 2.5rem;">
+    <h3>➕ Añadir Nuevo Pedido</h3>
+    <form method="POST" action="/backlog/add" style="margin-top: 1.5rem;">
         <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
             <div class="form-group">
                 <label>Referencia (Denier)</label>
-                <select name="denier" class="form-control">
-                    <option>2000</option>
-                    <option>2500</option>
-                    <option>3000</option>
-                    <option>4000</option>
-                    <option>6000</option>
-                    <option>9000</option>
-                    <option>12000</option>
-                    <option>18000</option>
+                <select name="denier_id" class="form-control" required>
+                    <option value="" disabled selected>Seleccione Denier</option>
+                    {% for d in deniers %}
+                    <option value="{{ d.id }}">{{ d.name }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="form-group">
                 <label>Cantidad (KG)</label>
-                <input type="number" name="kg" value="1.0" step="0.1" class="form-control">
+                <input type="number" name="kg" value="1000.0" step="1" class="form-control" required>
             </div>
             <div class="form-group">
                 <label>Fecha Requerida</label>
-                <input type="date" name="required_date" class="form-control">
+                <input type="date" name="required_date" class="form-control" required>
             </div>
             <div class="form-group" style="display: flex; align-items: flex-end;">
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Guardar Pedido</button>
@@ -35,41 +31,137 @@
     </form>
 </div>
 
-<div class="card glass" style="margin-top: 2rem; overflow-x: auto;">
-    <h3>Listado de Pedidos Pendientes</h3>
-    <table style="width: 100%; border-collapse: collapse; margin-top: 1.5rem;">
-        <thead>
-            <tr style="text-align: left; border-bottom: 2px solid var(--border-color); color: var(--accent-blue);">
-                <th style="padding: 1rem;">ID</th>
-                <th style="padding: 1rem;">Referencia</th>
-                <th style="padding: 1rem;">Cantidad (KG)</th>
-                <th style="padding: 1rem;">Fecha Requerida</th>
-                <th style="padding: 1rem;">Estado</th>
-                <th style="padding: 1rem;">Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for order in orders %}
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: 1rem;">#{{ order.id }}</td>
-                <td style="padding: 1rem; font-weight: 600;">{{ order.deniers.name if order.deniers else 'N/A' }}</td>
-                <td style="padding: 1rem;">{{ order.total_kg }} kg</td>
-                <td style="padding: 1rem;">{{ order.required_date }}</td>
-                <td style="padding: 1rem;">
-                    <span style="background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem;">PENDIENTE</span>
-                </td>
-                <td style="padding: 1rem;">
-                    <button class="btn glass" style="padding: 0.5rem;"><i class="bi bi-pencil"></i></button>
-                    <button class="btn glass" style="padding: 0.5rem; color: #EF4444;"><i class="bi bi-trash"></i></button>
-                </td>
-            </tr>
-            {% endfor %}
-            {% if not orders %}
-            <tr>
-                <td colspan="6" style="padding: 3rem; text-align: center; color: #94A3B8;">No hay pedidos en el backlog.</td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
+<div class="card glass">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3>Detalle de Pedidos</h3>
+        <span
+            style="background: rgba(56, 189, 248, 0.2); color: #38BDF8; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">
+            {{ orders|length }} Órdenes Pendientes
+        </span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead style="border-bottom: 2px solid var(--border-color);">
+                <tr>
+                    <th style="padding: 1rem;">ID</th>
+                    <th style="padding: 1rem;">Referencia</th>
+                    <th style="padding: 1rem;">KG Totales</th>
+                    <th style="padding: 1rem;">F. Requerida</th>
+                    <th style="padding: 1rem;">Estado</th>
+                    <th style="padding: 1rem;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr style="border-bottom: 1px solid var(--border-color); transition: background 0.2s;"
+                    onmouseover="this.style.background='rgba(56,189,248,0.05)'"
+                    onmouseout="this.style.background='transparent'">
+                    <td style="padding: 1rem; color: #94A3B8; font-size: 0.8rem;">#{{ order.id[:6] }}</td>
+                    <td style="padding: 1rem; font-weight: 600;">Denier {{ order.deniers.name if order.deniers else
+                        'N/A' }}</td>
+                    <td style="padding: 1rem;">{{ "{:,.0f}".format(order.total_kg) }} kg</td>
+                    <td style="padding: 1rem;">{{ order.required_date }}</td>
+                    <td style="padding: 1rem;">
+                        <span style="color: #6366F1;">● Pendiente</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                        <button class="bi bi-pencil" title="Editar"
+                            onclick='openEditModal("{{ order.id }}", "{{ order.denier_id }}", "{{ order.total_kg }}", "{{ order.required_date }}")'
+                            style="background: none; border: none; color: #38BDF8; margin-right: 0.5rem; cursor: pointer; font-size: 1.1rem;"></button>
+                        
+                        <button class="bi bi-trash" title="Eliminar"
+                            onclick='if(confirm("¿Seguro que desea eliminar el pedido #{{ order.id[:6] }}?")) document.getElementById("delete-form-{{ order.id }}").submit();'
+                            style="background: none; border: none; color: #EF4444; cursor: pointer; font-size: 1.1rem;"></button>
+                        
+                        <form id="delete-form-{{ order.id }}" action="/backlog/delete/{{ order.id }}" method="POST" style="display: none;"></form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not orders %}
+                <tr>
+                    <td colspan="6" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay pedidos pendientes
+                        en el backlog.</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 </div>
+
+<!-- Modal Edición -->
+<div id="editModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content card glass">
+        <h3>✏️ Editar Pedido</h3>
+        <form method="POST" action="/backlog/edit" style="margin-top: 1.5rem;">
+            <input type="hidden" name="order_id" id="edit_id">
+            <div class="form-group">
+                <label>Referencia (Denier)</label>
+                <select name="denier_id" id="edit_denier" class="form-control" required>
+                    {% for d in deniers %}
+                    <option value="{{ d.id }}">{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 1rem;">
+                <label>Cantidad (KG)</label>
+                <input type="number" name="kg" id="edit_kg" step="0.1" class="form-control" required>
+            </div>
+            <div class="form-group" style="margin-top: 1rem;">
+                <label>Fecha Requerida</label>
+                <input type="date" name="required_date" id="edit_date" class="form-control" required>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                <button type="submit" class="btn btn-primary" style="flex: 1;">Actualizar</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="flex: 1;">Cancelar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        backdrop-filter: blur(5px);
+    }
+    .modal-content {
+        width: 90%;
+        max-width: 400px;
+        padding: 2rem;
+    }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function openEditModal(id, denierId, kg, date) {
+        document.getElementById('edit_id').value = id;
+        document.getElementById('edit_denier').value = denierId;
+        document.getElementById('edit_kg').value = kg;
+        document.getElementById('edit_date').value = date;
+        document.getElementById('editModal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    // Cerrar modal al hacer clic fuera
+    window.onclick = function(event) {
+        let modal = document.getElementById('editModal');
+        if (event.target == modal) {
+            closeModal();
+        }
+    }
+</script>
 {% endblock %}

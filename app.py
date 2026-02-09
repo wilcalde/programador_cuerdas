@@ -54,22 +54,39 @@ def toggle_theme():
 def backlog():
     db = DBQueries()
     orders = db.get_orders()
-    return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders)
+    deniers = db.get_deniers()
+    return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders, deniers=deniers)
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
     db = DBQueries()
-    denier = request.form.get('denier')
+    denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
     req_date = request.form.get('required_date')
     
-    # Get denier_id from name
-    deniers = db.get_deniers()
-    denier_id = next((d['id'] for d in deniers if d['name'] == denier), None)
-    
     if denier_id and kg and req_date:
         db.create_order(denier_id, kg, req_date)
-        flash(f"Pedido de {kg}kg para Denier {denier} guardado", "success")
+        flash(f"Pedido de {kg}kg guardado", "success")
+    return redirect(url_for('backlog'))
+
+@app.route('/backlog/edit', methods=['POST'])
+def edit_backlog():
+    db = DBQueries()
+    order_id = request.form.get('order_id')
+    denier_id = request.form.get('denier_id')
+    kg = request.form.get('kg', type=float)
+    req_date = request.form.get('required_date')
+    
+    if order_id and denier_id and kg and req_date:
+        db.update_order(order_id, denier_id, kg, req_date)
+        flash(f"Pedido #{order_id[:6]} actualizado", "success")
+    return redirect(url_for('backlog'))
+
+@app.route('/backlog/delete/<order_id>', methods=['POST'])
+def delete_backlog(order_id):
+    db = DBQueries()
+    db.delete_order(order_id)
+    flash("Pedido eliminado", "success")
     return redirect(url_for('backlog'))
 
 @app.route('/programming')
@@ -184,7 +201,7 @@ def config():
             'hours': shifts_dict.get(str(curr), 24)
         })
         curr += pd.Timedelta(days=1)
-
+    
     return render_template('config.html', 
                          active_page='config', 
                          title='Configuración',
