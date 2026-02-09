@@ -4,6 +4,7 @@ from db.queries import DBQueries
 from integrations.openai_ia import generate_production_schedule, get_ai_optimization_scenario
 from datetime import datetime, timedelta
 import json
+import traceback
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "ciplas_master_cord_secret")
@@ -133,9 +134,8 @@ def api_ai_chat():
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     try:
-        # Check if API Key is set
         if not os.getenv("OPENAI_API_KEY"):
-             return jsonify({"error": "OPENAI_API_KEY no configurada en Vercel"})
+            return jsonify({"error": "OPENAI_API_KEY no configurada"})
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -272,6 +272,42 @@ def reports():
 @app.route('/ai')
 def ai_consultancy():
     return render_template('ai.html', active_page='ai', title='Consultoría IA')
+
+# Health check and Diagnostics
+@app.route('/health')
+def health():
+    db_status = "untested"
+    try:
+        db = DBQueries()
+        db.get_deniers()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return jsonify({
+        "status": "online",
+        "database": db_status,
+        "environment": {
+            "SUPABASE_URL": "set" if os.environ.get("SUPABASE_URL") else "missing",
+            "SUPABASE_KEY": "set" if os.environ.get("SUPABASE_KEY") else "missing",
+            "OPENAI_API_KEY": "set" if os.environ.get("OPENAI_API_KEY") else "missing"
+        },
+        "time": datetime.now().isoformat()
+    })
+
+# Global error handler to catch and show 500 details
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Pass through HTTP errors
+    if hasattr(e, 'code') and e.code < 500:
+        return jsonify(error=str(e)), e.code
+    
+    tb = traceback.format_exc()
+    print(tb) # Will show in Vercel logs
+    return jsonify({
+        "error": str(e),
+        "traceback": tb.split('\n')
+    }), 500
 
 # Error handler for 404
 @app.errorhandler(404)
