@@ -41,6 +41,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     """
     Generate a deterministic operational production schedule in Python.
     Features Dynamic Mixing (Strict Multitasking) and Hard Coupling (JIT).
+    Ensures zero "Ghost Kilograms" by enforcing a strict plant supply ceiling.
     """
     
     # 1. Prepare Backlog List (Deterministic SPT order)
@@ -74,7 +75,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         except:
             pass
 
-    # 4. Engine de Mezcla Dinámica (Multitasking)
+    # 4. Engine de Mezcla Dinámica (Multitasking) con Sincronización Estricta
     cronograma_final = []
     tabla_finalizacion = {}
     
@@ -100,8 +101,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                             found_vel = True
             if not found_vel: suministro_kgh += 50.0 # Fallback universal
         
-        tasa_unit_rw = cap_rw.get('kg_per_hour', 1.0)
-        puestos_max_supply = math.floor(suministro_kgh / tasa_unit_rw) if tasa_unit_rw > 0 else 28
+        tasa_unit_rw = cap_rw.get('kg_per_hour', 0)
+        if tasa_unit_rw <= 0: tasa_unit_rw = 1.0 # Evitar división por cero
+        
+        puestos_max_supply = math.floor(suministro_kgh / tasa_unit_rw)
         
         backlog_status.append({
             "ref": ref_name,
@@ -109,21 +112,23 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             "kg_total_inicial": item['kg_total'],
             "kgh_unitario": tasa_unit_rw,
             "n_optimo": cap_rw.get('n_optimo', 1),
-            "puestos_max_supply": max(1, min(28, puestos_max_supply))
+            "puestos_max_supply": min(28, max(0, puestos_max_supply))
         })
 
     def get_eligible_refs():
         return [b for b in backlog_status if b['kg_pendientes'] > 0.01]
 
-    # Calcular Techo de la Planta (Suma de capacidades máximas de T11-T16)
+    # Calcular Techo de la Planta (Suma de capacidades reales de T11-T16)
     total_plant_kgh = 0
+    machine_base_kgh = {} # {m_id: base_kgh}
     for m_id in ["T11", "T12", "T14", "T15", "T16"]:
-        max_m_kgh = 0
+        max_m = 0
         for denier, d_data in torsion_capacities.items():
             for m in d_data.get('machines', []):
-                if m['machine_id'] == m_id: max_m_kgh = max(max_m_kgh, m['kgh'])
-        if max_m_kgh == 0: max_m_kgh = 50.0 
-        total_plant_kgh += max_m_kgh
+                if m['machine_id'] == m_id: max_m = max(max_m, m['kgh'])
+        if max_m == 0: max_m = 50.0 
+        machine_base_kgh[m_id] = max_m
+        total_plant_kgh += max_m
 
     # Procesamiento dia a dia
     while any(b['kg_pendientes'] > 0.01 for b in backlog_status):
@@ -141,32 +146,33 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             eligibles = get_eligible_refs()
             if not eligibles: break
             
-            # Lógica "Llenatodo" con Techo de Planta
+            # Lógica "Llenatodo" con RESTRICCIÓN DE TECHO (No Ghost Kilos)
             mezcla_slot = []
-            puestos_acumulados = 0
-            kgh_acumulado_slot = 0
+            puestos_acum__ = 0
+            kgh_acum__ = 0
             
             for b in eligibles:
-                if puestos_acumulados >= 28: break
+                if puestos_acum__ >= 28 or kgh_acum__ >= total_plant_kgh - 1.0: break
                 
-                espacio_fisico = 28 - puestos_acumulados
-                kgh_disponible = total_plant_kgh - kgh_acumulado_slot
+                espacio_libre = 28 - puestos_acum__
+                capacidad_libre_planta = total_plant_kgh - kgh_acum__
                 
-                if kgh_disponible <= 0.1: break
+                # Cuántos puestos puede abastecer Torsión para ESTA referencia específica (individualmente)
+                max_por_ref = b['puestos_max_supply']
                 
-                # Cuántos puestos caben en el suministro restante de la planta
-                max_techo_planta = math.floor(kgh_disponible / b['kgh_unitario']) if b['kgh_unitario'] > 0 else 28
+                # Cuántos puestos caben en la capacidad RESTANTE de la planta hoy (techo global)
+                max_por_techo_planta = math.floor(capacidad_libre_planta / b['kgh_unitario']) if b['kgh_unitario'] > 0 else 28
                 
-                puestos_pesta_ref = min(espacio_fisico, b['puestos_max_supply'], max_techo_planta)
+                puestos_para_esta_ref = min(espacio_libre, max_por_ref, max_por_techo_planta)
                 
-                if puestos_pesta_ref > 0:
-                    mezcla_slot.append({"ref_obj": b, "puestos": puestos_pesta_ref})
-                    puestos_acumulados += puestos_pesta_ref
-                    kgh_acumulado_slot += (puestos_pesta_ref * b['kgh_unitario'])
+                if puestos_para_esta_ref > 0:
+                    mezcla_slot.append({"ref_obj": b, "puestos": puestos_para_esta_ref})
+                    puestos_acum__ += puestos_para_esta_ref
+                    kgh_acum__ += (puestos_para_esta_ref * b['kgh_unitario'])
 
             if not mezcla_slot: break
             
-            # Calcular duración del slot
+            # Calcular duración del slot (Shortest Task first)
             duracion_slot = horas_disponibles_dia
             for item in mezcla_slot:
                 b = item['ref_obj']
@@ -206,7 +212,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 ops_totales_slot += ops_ref
 
             dia_entry["metricas_dia"]["operarios_maximos"] = max(dia_entry["metricas_dia"]["operarios_maximos"], ops_totales_slot)
-            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], puestos_acumulados)
+            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], puestos_acum__)
             horas_disponibles_dia -= duracion_slot
 
         cronograma_final.append(dia_entry)
@@ -278,7 +284,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     dataset_ops = [d["metricas_dia"]["operarios_maximos"] for d in cronograma_final]
     dataset_kg = [round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final]
 
-    comentario = "Algoritmo Multitasking con Techo de Planta: Balanceo de carga Upstream/Downstream garantizado."
+    comentario = "Algoritmo No Ghost Kilos: Sincronización física total entre Rebobinado y Torsión."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -287,8 +293,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             ai_res = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Analista de producción. Resume la estrategia de techo de planta (suministro total) en una frase técnica muy corta."},
-                    {"role": "user", "content": f"Producción limitada por techo de torsión. Operarios max: {max(dataset_ops)}. Suministro == Demanda."}
+                    {"role": "system", "content": "Analista de producción. Resume la estrategia de balance de masa estricto (cero kilos fantasma) en una frase técnica muy corta."},
+                    {"role": "user", "content": f"Sincronización total activa. Capacidad planta: {round(total_plant_kgh, 2)} kg/h. Operarios max: {max(dataset_ops)}."}
                 ],
                 max_tokens=60
             )
