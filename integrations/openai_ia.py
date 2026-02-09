@@ -40,8 +40,8 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Di
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Generate a deterministic operational production schedule in Python.
-    Features Dynamic Mixing (Strict Multitasking) and Hard Coupling (JIT).
-    Ensures zero "Ghost Kilograms" by enforcing a strict plant supply ceiling.
+    Uses a deterministic mathematical algorithm to mix deniers and ensure zero Ghost Kilograms.
+    Implements Global Supply Capacity (GSC) constraint with linear equation solving.
     """
     
     # 1. Prepare Backlog List (Deterministic SPT order)
@@ -75,7 +75,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         except:
             pass
 
-    # 4. Engine de Mezcla Dinámica (Multitasking) con Sincronización Estricta
+    # 4. Engine de Mezcla Determinística (Mathematical Mixing Algorithm)
     cronograma_final = []
     tabla_finalizacion = {}
     
@@ -118,7 +118,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     def get_eligible_refs():
         return [b for b in backlog_status if b['kg_pendientes'] > 0.01]
 
-    # Calcular Techo de la Planta (Suma de capacidades reales de T11-T16)
+    # Calcular Techo de la Planta (GSC - Global Supply Capacity)
     total_plant_kgh = 0
     machine_base_kgh = {} # {m_id: base_kgh}
     for m_id in ["T11", "T12", "T14", "T15", "T16"]:
@@ -146,29 +146,82 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             eligibles = get_eligible_refs()
             if not eligibles: break
             
-            # Lógica "Llenatodo" con RESTRICCIÓN DE TECHO (No Ghost Kilos)
-            mezcla_slot = []
-            puestos_acum__ = 0
-            kgh_acum__ = 0
+            # ALGORITMO DETERMINISTA DE MEZCLA DE DENIERS (Zero Ghost Kilos)
+            # Restricción: SUM(Puestos_i * Tasa_i) <= GSC (Global Supply Capacity)
+            # Objetivo: SUM(Puestos_i) = 28 (o máximo posible)
             
-            for b in eligibles:
-                if puestos_acum__ >= 28 or kgh_acum__ >= total_plant_kgh - 1.0: break
+            mezcla_slot = []
+            
+            # Ordenar referencias por prioridad SPT (ya están en orden en eligibles)
+            ref_A = eligibles[0]
+            
+            # Caso 1: Si una sola referencia puede llenar los 28 puestos sin exceder GSC
+            consumo_A_solo = 28 * ref_A['kgh_unitario']
+            
+            if consumo_A_solo <= total_plant_kgh:
+                # Caso simple: una sola referencia
+                puestos_A = min(28, ref_A['puestos_max_supply'])
+                mezcla_slot.append({"ref_obj": ref_A, "puestos": puestos_A})
+            else:
+                # Caso 2: Necesitamos mezclar con una referencia de menor consumo
+                # Encontrar la referencia con menor consumo (menor kgh_unitario)
+                ref_B = None
+                for candidate in eligibles[1:]:
+                    if candidate['kgh_unitario'] < ref_A['kgh_unitario']:
+                        ref_B = candidate
+                        break
                 
-                espacio_libre = 28 - puestos_acum__
-                capacidad_libre_planta = total_plant_kgh - kgh_acum__
+                if ref_B is None and len(eligibles) > 1:
+                    # Si no hay una más ligera, usar la siguiente disponible
+                    ref_B = eligibles[1]
                 
-                # Cuántos puestos puede abastecer Torsión para ESTA referencia específica (individualmente)
-                max_por_ref = b['puestos_max_supply']
-                
-                # Cuántos puestos caben en la capacidad RESTANTE de la planta hoy (techo global)
-                max_por_techo_planta = math.floor(capacidad_libre_planta / b['kgh_unitario']) if b['kgh_unitario'] > 0 else 28
-                
-                puestos_para_esta_ref = min(espacio_libre, max_por_ref, max_por_techo_planta)
-                
-                if puestos_para_esta_ref > 0:
-                    mezcla_slot.append({"ref_obj": b, "puestos": puestos_para_esta_ref})
-                    puestos_acum__ += puestos_para_esta_ref
-                    kgh_acum__ += (puestos_para_esta_ref * b['kgh_unitario'])
+                if ref_B:
+                    # Resolver ecuación lineal: Pa + Pb = 28, (Pa * Tasa_A) + (Pb * Tasa_B) <= GSC
+                    # Pa = (GSC - 28*Tasa_B) / (Tasa_A - Tasa_B)
+                    Tasa_A = ref_A['kgh_unitario']
+                    Tasa_B = ref_B['kgh_unitario']
+                    
+                    if abs(Tasa_A - Tasa_B) > 0.01:  # Evitar división por cero
+                        # Intentar llenar completamente los 28 puestos respetando GSC
+                        Pa_ideal = (total_plant_kgh - 28 * Tasa_B) / (Tasa_A - Tasa_B)
+                        
+                        # Limitar por las restricciones de suministro individual
+                        Pa = max(0, min(28, ref_A['puestos_max_supply'], math.floor(Pa_ideal)))
+                        Pb = 28 - Pa
+                        
+                        # Verificar que Pb no exceda su propio límite de suministro
+                        if Pb > ref_B['puestos_max_supply']:
+                            Pb = ref_B['puestos_max_supply']
+                            Pa = 28 - Pb
+                            # Re-verificar que Pa no exceda su límite
+                            if Pa > ref_A['puestos_max_supply']:
+                                Pa = ref_A['puestos_max_supply']
+                                Pb = min(28 - Pa, ref_B['puestos_max_supply'])
+                        
+                        # Verificación final: asegurar que no excedemos GSC
+                        consumo_total = (Pa * Tasa_A) + (Pb * Tasa_B)
+                        if consumo_total > total_plant_kgh:
+                            # Reducir proporcionalmente hasta que quepa
+                            factor = total_plant_kgh / consumo_total
+                            Pa = math.floor(Pa * factor)
+                            Pb = math.floor(Pb * factor)
+                        
+                        if Pa > 0:
+                            mezcla_slot.append({"ref_obj": ref_A, "puestos": int(Pa)})
+                        if Pb > 0:
+                            mezcla_slot.append({"ref_obj": ref_B, "puestos": int(Pb)})
+                    else:
+                        # Tasas idénticas, dividir equitativamente
+                        Pa = min(14, ref_A['puestos_max_supply'])
+                        Pb = min(14, ref_B['puestos_max_supply'])
+                        mezcla_slot.append({"ref_obj": ref_A, "puestos": Pa})
+                        mezcla_slot.append({"ref_obj": ref_B, "puestos": Pb})
+                else:
+                    # Solo hay una referencia disponible, usar lo máximo posible sin exceder GSC
+                    puestos_max_gsc = math.floor(total_plant_kgh / ref_A['kgh_unitario'])
+                    puestos_A = min(puestos_max_gsc, ref_A['puestos_max_supply'])
+                    if puestos_A > 0:
+                        mezcla_slot.append({"ref_obj": ref_A, "puestos": puestos_A})
 
             if not mezcla_slot: break
             
@@ -211,8 +264,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 
                 ops_totales_slot += ops_ref
 
+
             dia_entry["metricas_dia"]["operarios_maximos"] = max(dia_entry["metricas_dia"]["operarios_maximos"], ops_totales_slot)
-            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], puestos_acum__)
+            puestos_activos_slot = sum(item['puestos'] for item in mezcla_slot)
+            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], puestos_activos_slot)
             horas_disponibles_dia -= duracion_slot
 
         cronograma_final.append(dia_entry)
@@ -276,7 +331,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         tabla_finalizacion_rows.append({
             "referencia": b['ref'],
             "fecha_finalizacion": f_date.strftime("%Y-%m-%d %H:%M"),
-            "puestos_promedio": "Dinámico (Multitasking)",
+            "puestos_promedio": "Dinámico (Matemático)",
             "kg_totales": round(b['kg_total_inicial'], 2)
         })
 
@@ -284,7 +339,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     dataset_ops = [d["metricas_dia"]["operarios_maximos"] for d in cronograma_final]
     dataset_kg = [round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final]
 
-    comentario = "Algoritmo No Ghost Kilos: Sincronización física total entre Rebobinado y Torsión."
+    comentario = f"Algoritmo Determinístico: Máx {round(total_plant_kgh, 1)} kg/h. Balance exacto Torsión/Rebobinado."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -293,8 +348,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             ai_res = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Analista de producción. Resume la estrategia de balance de masa estricto (cero kilos fantasma) en una frase técnica muy corta."},
-                    {"role": "user", "content": f"Sincronización total activa. Capacidad planta: {round(total_plant_kgh, 2)} kg/h. Operarios max: {max(dataset_ops)}."}
+                    {"role": "system", "content": "Analista de producción. Resume el algoritmo de mezcla matemática de deniers en una frase técnica muy corta."},
+                    {"role": "user", "content": f"GSC={round(total_plant_kgh, 1)}kg/h. Mezcla determinística. Ops max: {max(dataset_ops)}."}
                 ],
                 max_tokens=60
             )
