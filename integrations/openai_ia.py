@@ -2,8 +2,6 @@ from openai import OpenAI
 import os
 import json
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
-import math
 
 def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Dict[str, Any]]) -> str:
     """
@@ -37,12 +35,13 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Di
     except Exception as e:
         return f"Error al consultar la IA: {e}"
 
+from datetime import datetime, timedelta
+import math
+
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Generate a deterministic operational production schedule in Python.
-    Uses a deterministic mathematical algorithm to mix deniers and ensure zero Ghost Kilograms.
-    Implements Global Supply Capacity (GSC) constraint with linear equation solving.
-    Includes explicit check_balance field for mass balance verification.
+    No more AI-based math. GPT-4o-mini only used for scenario commentary.
     """
     
     # 1. Prepare Backlog List (Deterministic SPT order)
@@ -54,7 +53,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 "kg_total": data.get('kg_total', 0)
             })
     else:
-        # SPT Fallback
+        # SPT Fallback: Shortest Processing Time roughly approximated by denier/kg
         temp_backlog = {}
         for o in orders:
             d_name = o.get('deniers', {}).get('name', 'Unknown')
@@ -63,20 +62,26 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             if kg > 0:
                 backlog_list.append({"ref": d_name, "kg_total": kg})
     
+    # Sort by Ref name as simple priority for now, or maintain provided order
+    # For now, we follow the order as they came or simple ascending Ref
     backlog_list.sort(key=lambda x: str(x['ref']))
 
+    # 2. Master Data Lookup
+    # Note: rewinder_capacities is already keyed by denier name from app.py
+    
     # 3. Calendar Setup
     default_start_date = datetime.now() + timedelta(days=1)
     current_time = default_start_date.replace(hour=0, minute=0, second=0, microsecond=0)
     
     if shifts and len(shifts) > 0:
+        # Use first available shift date as start
         try:
             first_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
             current_time = first_date.replace(hour=0, minute=0, second=0, microsecond=0)
         except:
             pass
 
-    # 4. Engine de Mezcla Determinística (Mathematical Mixing Algorithm)
+    # 4. Engine de Mezcla Dinámica (Multitasking)
     cronograma_final = []
     tabla_finalizacion = {}
     
@@ -119,7 +124,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     def get_eligible_refs():
         return [b for b in backlog_status if b['kg_pendientes'] > 0.01]
 
-    # Calcular Techo de la Planta (GSC - Global Supply Capacity)
+    # Calcular Techo de la Planta (Suma de capacidades reales de T11-T16)
+    # Buscamos la capacidad máxima "promedio" para tener un techo estable
     total_plant_kgh = 0
     machine_base_kgh = {} # {m_id: base_kgh}
     for m_id in ["T11", "T12", "T14", "T15", "T16"]:
@@ -274,7 +280,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         cronograma_final.append(dia_entry)
         current_time += timedelta(days=1)
 
-    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla) + Check Balance
+    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla)
     kgh_lookup_fast = {} # Pre-procesar para velocidad
     for denier, d_data in torsion_capacities.items():
         for m in d_data.get('machines', []):
@@ -293,6 +299,9 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         kg_dia_torsion = 0
         h_max_torsion = 0
         maquinas_usadas = set()
+        
+        # Aporte de suministro por referencia para el balance posterior
+        suministro_por_referencia = {}
         
         for ref, kg_objetivo in demanda_dia.items():
             compatibles = sorted([m_id for m_id in ["T11", "T12", "T14", "T15", "T16"] if (m_id, ref) in kgh_lookup_fast or True]) # Fallback always true
@@ -318,23 +327,40 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 kg_pending -= kg_asig
                 kg_dia_torsion += kg_asig
                 h_max_torsion = max(h_max_torsion, h_asig)
-        
+                
+                # Acumular para el balance por referencia
+                suministro_por_referencia[ref] = suministro_por_referencia.get(ref, 0) + kg_asig
         
         # Calcular consumo total del rebobinado para este día
         consumo_total_rebobinado = sum(demanda_dia.values())
         
-        # Verificación de balance de masa
-        diferencia = abs(kg_dia_torsion - consumo_total_rebobinado)
-        balance_perfecto = diferencia < 0.5  # Tolerancia de 0.5 kg por redondeos
+        # Generar detalle de balance por referencia
+        balance_refs = []
+        for ref in demanda_dia.keys():
+            kg_dem = demanda_dia.get(ref, 0)
+            kg_sup = suministro_por_referencia.get(ref, 0)
+            diff = kg_sup - kg_dem
+            balance_refs.append({
+                "referencia": ref,
+                "kg_suministro": round(kg_sup, 2),
+                "kg_consumo": round(kg_dem, 2),
+                "balance": round(diff, 2),
+                "status": "OK" if abs(diff) < 0.5 else ("EXCESO" if diff > 0 else "FALTA")
+            })
+
+        # Verificación de balance de masa global
+        diferencia_global = abs(kg_dia_torsion - consumo_total_rebobinado)
+        balance_perfecto = diferencia_global < 0.5
         
         dia["requerimiento_abastecimiento"] = {
             "kg_totales_demandados": round(kg_dia_torsion, 2),
             "horas_produccion_conjunta": round(h_max_torsion, 2),
             "detalle_torcedoras": detalle_torsion,
+            "balance_por_referencia": balance_refs,
             "check_balance": {
                 "suministro_total_kg": round(kg_dia_torsion, 2),
                 "consumo_total_kg": round(consumo_total_rebobinado, 2),
-                "diferencia_kg": round(diferencia, 2),
+                "diferencia_kg": round(diferencia_global, 2),
                 "balance_perfecto": balance_perfecto
             }
         }
@@ -346,7 +372,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         tabla_finalizacion_rows.append({
             "referencia": b['ref'],
             "fecha_finalizacion": f_date.strftime("%Y-%m-%d %H:%M"),
-            "puestos_promedio": "Dinámico (Matemático)",
+            "puestos_promedio": "Dinámico (Multitasking)",
             "kg_totales": round(b['kg_total_inicial'], 2)
         })
 
@@ -354,7 +380,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     dataset_ops = [d["metricas_dia"]["operarios_maximos"] for d in cronograma_final]
     dataset_kg = [round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final]
 
-    comentario = f"Algoritmo Determinístico: Máx {round(total_plant_kgh, 1)} kg/h. Balance exacto Torsión/Rebobinado."
+    comentario = "Algoritmo Multitasking: 28 puestos ocupados mediante mezcla dinámica de deniers."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -363,8 +389,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             ai_res = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Analista de producción. Resume el algoritmo de mezcla matemática de deniers en una frase técnica muy corta."},
-                    {"role": "user", "content": f"GSC={round(total_plant_kgh, 1)}kg/h. Mezcla determinística. Ops max: {max(dataset_ops)}."}
+                    {"role": "system", "content": "Analista de producción. Resume la estrategia de mezcla dinámica de deniers para llenar los 28 puestos en una frase técnica muy corta."},
+                    {"role": "user", "content": f"Producción concurrente activada. Operarios max: {max(dataset_ops)}. Mezcla JIT completada."}
                 ],
                 max_tokens=60
             )
