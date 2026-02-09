@@ -378,6 +378,7 @@
                         data: data.dataset_kg_produccion,
                         backgroundColor: 'rgba(56, 189, 248, 0.3)',
                         borderColor: '#38BDF8',
+                        borderWidth: 1,
                         yAxisID: 'yKg'
                     }
                 ]
@@ -386,8 +387,24 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    yOps: { type: 'linear', position: 'left', title: { display: true, text: 'Operarios' }, ticks: { color: '#6366F1' } },
-                    yKg: { type: 'linear', position: 'right', title: { display: true, text: 'Kilogramos' }, ticks: { color: '#38BDF8' }, grid: { display: false } }
+                    yOps: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Operarios', color: '#6366F1' },
+                        ticks: { color: '#6366F1' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    yKg: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Kilogramos', color: '#38BDF8' },
+                        ticks: { color: '#38BDF8' },
+                        grid: { display: false }
+                    },
+                    x: { ticks: { color: '#94A3B8' }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { labels: { color: '#F8FAFC' } }
                 }
             }
         });
@@ -402,9 +419,12 @@
                 body: JSON.stringify(currentPlan)
             });
             const data = await res.json();
-            if (data.success) alert("¡Plan guardado!");
-            else alert("Error: " + data.error);
-        } catch (e) { console.error(e); }
+            if (data.success) alert("¡Plan guardado exitosamente!");
+            else alert("Error al guardar: " + data.error);
+        } catch (e) {
+            console.error(e);
+            alert("Error de conexión al guardar el plan.");
+        }
     }
 
     function exportToPDF() {
@@ -414,8 +434,18 @@
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
 
+        const colors = {
+            dark: [30, 41, 59],
+            blue: [56, 189, 248],
+            yellow: [250, 204, 21],
+            green: [16, 185, 129],
+            gray: [148, 163, 184],
+            lightBg: [248, 250, 252],
+            border: [226, 232, 240]
+        };
+
         const drawHeader = (d) => {
-            d.setFillColor(30, 41, 59);
+            d.setFillColor(...colors.dark);
             d.rect(0, 0, pageWidth, 80, 'F');
             d.setTextColor(255, 255, 255);
             d.setFontSize(22); d.setFont("helvetica", "bold");
@@ -431,59 +461,160 @@
 
         drawHeader(doc);
         let yPos = 110;
-        doc.setTextColor(50); doc.setFontSize(11); doc.setFont("helvetica", "bold");
-        doc.text("Resumen Ejecutivo:", 40, yPos); yPos += 20;
-        doc.setFont("helvetica", "normal");
-        doc.text(`- Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 50, yPos); yPos += 15;
-        doc.text(`- Total Kilogramos: ${currentPlan.resumen_global.kg_totales_plan.toLocaleString()} kg`, 50, yPos); yPos += 15;
-        doc.text(`- Dias Programados: ${currentPlan.resumen_global.total_dias_programados}`, 50, yPos); yPos += 30;
 
+        // Executive Summary Mirroring
+        doc.setTextColor(...colors.blue); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.text("Resumen Ejecutivo", 40, yPos); yPos += 25;
+
+        const metrics = [
+            { label: "Fin Estimado", value: currentPlan.resumen_global.fecha_finalizacion_total },
+            { label: "Días Programados", value: currentPlan.resumen_global.total_dias_programados },
+            { label: "Total Kg Plan", value: currentPlan.resumen_global.kg_totales_plan?.toLocaleString() + " kg" }
+        ];
+
+        metrics.forEach((m, i) => {
+            const x = 40 + (i * 170);
+            doc.setDrawColor(...colors.border);
+            doc.setFillColor(...colors.lightBg);
+            doc.rect(x, yPos, 160, 45, 'FD');
+            doc.setFontSize(8); doc.setTextColor(...colors.gray);
+            doc.setFont("helvetica", "normal");
+            doc.text(m.label.toUpperCase(), x + 10, yPos + 15);
+            doc.setFontSize(11); doc.setTextColor(...colors.dark); doc.setFont("helvetica", "bold");
+            doc.text(m.value ? m.value.toString() : '0', x + 10, yPos + 35);
+        });
+        yPos += 70;
+
+        doc.setFontSize(10); doc.setFont("helvetica", "italic"); doc.setTextColor(...colors.gray);
+        const strategyText = `Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`;
+        const strategyLines = doc.splitTextToSize(strategyText, pageWidth - 80);
+        doc.text(strategyLines, 40, yPos);
+        yPos += (strategyLines.length * 12) + 20;
+
+        // Charts
         try {
-            const resourceCanvas = document.getElementById('resourceChart');
-            if (resourceCanvas) {
-                doc.addImage(resourceCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 180);
+            const resCanvas = document.getElementById('resourceChart');
+            const totCanvas = document.getElementById('dailyTotalsChart');
+            if (resCanvas) {
+                doc.addImage(resCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 180);
                 yPos += 200;
+            }
+            if (totCanvas) {
+                if (yPos > 600) { doc.addPage(); yPos = 40; }
+                doc.addImage(totCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 150);
+                yPos += 170;
             }
         } catch (e) { console.error("PDF Charts Error:", e); }
 
-        doc.addPage(); yPos = 40;
-        doc.setFontSize(14); doc.text("Materia Prima & Finalización", 40, yPos);
-        const rawMaterialsData = [];
+        // Raw Materials (Extrusion) - Yellow Theme
+        doc.addPage(); yPos = 50;
+        doc.setTextColor(...colors.yellow); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.text("Requerimientos de Materia Prima (Extrusión)", 40, yPos);
+        const rawMatRows = [];
         currentPlan.cronograma_diario.forEach(dia => {
             if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
                 dia.requerimiento_abastecimiento.balance_por_referencia.forEach((b, idx) => {
-                    rawMaterialsData.push([idx === 0 ? dia.fecha : '', b.referencia, Math.round(b.kg_suministro).toLocaleString() + " kg"]);
+                    rawMatRows.push([idx === 0 ? dia.fecha : '', b.referencia, Math.round(b.kg_suministro).toLocaleString() + " kg"]);
                 });
             }
         });
-
         doc.autoTable({
-            startY: yPos + 10,
-            head: [['Fecha', 'Referencia', 'Kg Requeridos (Extrusión)']],
-            body: rawMaterialsData,
+            startY: yPos + 15,
+            head: [['Fecha', 'Referencia', 'Cantidad Requerida']],
+            body: rawMatRows,
             theme: 'grid',
-            headStyles: { fillColor: [250, 204, 21], textColor: [0, 0, 0] },
-            styles: { fontSize: 8 },
-            margin: { left: 40, right: 40 }
+            headStyles: { fillColor: colors.yellow, textColor: [0, 0, 0], fontStyle: 'bold' },
+            styles: { fontSize: 9 }, margin: { left: 40, right: 40 }
         });
 
-        yPos = doc.lastAutoTable.finalY + 40;
-        currentPlan.cronograma_diario.forEach((dia) => {
-            if (yPos > 600) { doc.addPage(); yPos = 40; }
-            doc.setFillColor(56, 189, 248); doc.rect(40, yPos - 10, pageWidth - 80, 25, 'F');
-            doc.setTextColor(255, 255, 255); doc.setFontSize(12);
-            doc.text(`DETALLE DÍA: ${dia.fecha}`, 50, yPos + 7); yPos += 30;
-            doc.setTextColor(30);
-            const rwEntries = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, Math.round(t.kg_producidos).toLocaleString()]);
+        // Summary by Reference - Blue Theme
+        yPos = doc.lastAutoTable.finalY + 30;
+        doc.setTextColor(...colors.blue); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.text("Resumen por Referencia (Terminación)", 40, yPos);
+        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
+        doc.autoTable({
+            startY: yPos + 15,
+            head: [['Referencia', 'Fecha Terminación', 'Asignación', 'Total Kg']],
+            body: sumRows,
+            theme: 'grid',
+            headStyles: { fillColor: colors.blue, fontStyle: 'bold' },
+            styles: { fontSize: 9 }, margin: { left: 40, right: 40 }
+        });
+
+        // Daily Details
+        currentPlan.cronograma_diario.forEach((dia, dIdx) => {
+            if (yPos > 600) { doc.addPage(); yPos = 50; }
+            
+            // Date Header box
+            doc.setFillColor(241, 245, 249);
+            doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
+            doc.setDrawColor(...colors.blue); doc.setLineWidth(2);
+            doc.line(40, yPos + 10, 40, yPos - 15);
+            doc.setTextColor(...colors.dark); doc.setFontSize(12); doc.setFont("helvetica", "bold");
+            doc.text(`Día: ${dia.fecha}`, 55, yPos + 3);
+            yPos += 35;
+
+            // Rewinder Table
+            doc.setTextColor(...colors.blue); doc.setFontSize(11);
+            doc.text("Programación de Rebobinado (Rewinder)", 40, yPos);
+            const rwRows = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, `${t.hora_inicio} - ${t.hora_fin}`, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos).toLocaleString()]);
             doc.autoTable({
-                startY: yPos, head: [['#', 'Referencia', 'Inicio', 'Fin', 'Puestos', 'Kg']], body: rwEntries, theme: 'striped', styles: { fontSize: 8 }, margin: { left: 40, right: 40 }
+                startY: yPos + 10,
+                head: [['#', 'Referencia', 'Horario', 'Puestos', 'Ops', 'Kg']],
+                body: rwRows,
+                theme: 'striped',
+                headStyles: { fillColor: colors.dark },
+                styles: { fontSize: 8 }, margin: { left: 40, right: 40 }
             });
-            yPos = doc.lastAutoTable.finalY + 30;
+            yPos = doc.lastAutoTable.finalY + 20;
+
+            // Supply Table (Torsion) - YELLOW Theme
+            if (dia.requerimiento_abastecimiento?.detalle_torcedoras?.length > 0) {
+                if (yPos > 700) { doc.addPage(); yPos = 50; }
+                doc.setTextColor(...colors.yellow); doc.setFontSize(11);
+                doc.text("Suministro (Torcedoras T11-T16)", 40, yPos);
+                const supRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(s => [s.maquina, s.ref, s.horas + " h", Math.round(s.kg_aportados).toLocaleString() + " kg"]);
+                doc.autoTable({
+                    startY: yPos + 10,
+                    head: [['Máquina', 'Referencia', 'Horas', 'Aporte (Kg)']],
+                    body: supRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: colors.yellow, textColor: [0, 0, 0], fontStyle: 'bold' },
+                    styles: { fontSize: 7 }, margin: { left: 40, right: 40 }
+                });
+                yPos = doc.lastAutoTable.finalY + 20;
+            }
+
+            // Mass Balance Table
+            if (dia.requerimiento_abastecimiento?.balance_por_referencia?.length > 0) {
+                if (yPos > 700) { doc.addPage(); yPos = 50; }
+                doc.setTextColor(...colors.blue); doc.setFontSize(11);
+                doc.text("Balance de Masa por Referencia", 40, yPos);
+                const balRows = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [b.referencia, Math.round(b.kg_suministro).toLocaleString(), Math.round(b.kg_consumo).toLocaleString(), Math.round(b.balance).toLocaleString(), b.status]);
+                doc.autoTable({
+                    startY: yPos + 10,
+                    head: [['Referencia', 'Suministro', 'Consumo', 'Balance', 'Estado']],
+                    body: balRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: colors.dark, fontStyle: 'bold' },
+                    styles: { fontSize: 7 }, margin: { left: 40, right: 40 },
+                    didParseCell: function(data) {
+                        if (data.section === 'body' && data.column.index === 4) {
+                            if (data.cell.raw === 'OK') data.cell.styles.textColor = colors.green;
+                            else if (data.cell.raw === 'FALTA') data.cell.styles.textColor = [239, 68, 68];
+                        }
+                    }
+                });
+                yPos = doc.lastAutoTable.finalY + 40;
+            }
         });
 
-        const pc = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= pc; i++) { doc.setPage(i); drawFooter(doc, i, pc); }
-        doc.save(`Plan_Ciplas_${new Date().toISOString().split('T')[0]}.pdf`);
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            drawFooter(doc, i, totalPages);
+        }
+        doc.save(`Plan_Produccion_Ciplas_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 </script>
 {% endblock %}
