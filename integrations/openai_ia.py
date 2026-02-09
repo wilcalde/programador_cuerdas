@@ -178,16 +178,16 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             r = det["ref"]
             demanda_acumulada[f][r] = demanda_acumulada[f].get(r, 0) + det["kg_aportados"]
 
-    # 2. Capacidades y Máquinas
+    # 2. Capacidades y Máquinas Universales
     kgh_lookup = {}
-    all_machines = set()
+    all_machines_in_plant = ["T11", "T12", "T14", "T15", "T16"] # Lista base de la planta
     for denier, data in torsion_capacities.items():
         for m in data.get('machines', []):
             m_id = m['machine_id']
             kgh_lookup[(m_id, denier)] = m['kgh']
-            all_machines.add(m_id)
+            if m_id not in all_machines_in_plant: all_machines_in_plant.append(m_id)
 
-    # 3. Procesamiento en reversa (pumping) con prioridad nativa
+    # 3. Procesamiento en reversa (pumping) con prioridad nativa y fallback
     machine_work = {} 
     sorted_dates = sorted(demanda_acumulada.keys(), reverse=True)
     
@@ -201,19 +201,24 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         
         for ref in (refs_nativas + otras_refs):
             kg_por_cubrir = demanda_acumulada[fecha_actual][ref]
-            maquinas_compatibles = sorted([m for m in all_machines if (m, ref) in kgh_lookup])
+            # Paso A: Máquinas configuradas para este denier
+            maquinas_compatibles = sorted([m for m in all_machines_in_plant if (m, ref) in kgh_lookup])
+            # Paso B: FALLBACK - Si no hay máquinas configuradas, todas las máquinas son candidatas
+            if not maquinas_compatibles:
+                maquinas_compatibles = sorted(all_machines_in_plant)
             
             for m_id in maquinas_compatibles:
                 if kg_por_cubrir <= 0.01: break
                 if m_id not in machine_work[fecha_actual]:
-                    vel = kgh_lookup[(m_id, ref)]
-                    if vel <= 0: continue
+                    # Obtener velocidad (o fallback basado en el denier si no existe configuración)
+                    vel = kgh_lookup.get((m_id, ref), 50.0) # 50.0 kg/h fallback genérico
+                    if vel <= 0: vel = 50.0
                     
                     horas_asig = min(24, kg_por_cubrir / vel)
                     kg_asig = horas_asig * vel
                     
                     machine_work[fecha_actual][m_id] = {
-                        "ref": f"{ref}", # FIX: No duplicar "Ref"
+                        "ref": f"{ref}", 
                         "horas": round(horas_asig, 2),
                         "kg": round(kg_asig, 2)
                     }
@@ -262,7 +267,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     }
 
     # 6. AI Commentary
-    comentario = "Estrategia Max-Rewinder: Suministro de Torcedoras especializado y balanceado JIT."
+    comentario = "Estrategia Max-Rewinder: Suministro de Torcedoras especializado y balanceado JIT (Mirror mode)."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -272,7 +277,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "Analista de producción. Resume el plan de abastecimiento y operarios en una frase corta técnica."},
-                    {"role": "user", "content": f"Programados {len(backlog_list)} días. Operarios max: {max(dataset_operarios)}. Torsión JIT integrada."}
+                    {"role": "user", "content": f"Programados {len(backlog_list)} días. Operarios max: {max(dataset_operarios)}. Torsión JIT integrada con fallback universal."}
                 ],
                 max_tokens=60
             )

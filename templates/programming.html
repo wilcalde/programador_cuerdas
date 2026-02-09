@@ -39,12 +39,13 @@
             transform: rotate(360deg);
         }
     }
+
     .chart-container {
         position: relative;
         height: 300px;
         width: 100%;
         margin-top: 2rem;
-        background: rgba(0,0,0,0.2);
+        background: rgba(0, 0, 0, 0.2);
         padding: 1rem;
         border-radius: 8px;
     }
@@ -214,7 +215,7 @@
                         html += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                 <td style="padding: 0.5rem;">${t.maquina}</td>
-                                <td style="padding: 0.5rem;">Ref ${t.ref}</td>
+                                <td style="padding: 0.5rem;">${t.ref}</td>
                                 <td style="padding: 0.5rem;">${t.horas} h</td>
                                 <td style="padding: 0.5rem; color: #10B981;">+${Math.round(t.kg_aportados)} kg</td>
                             </tr>
@@ -235,7 +236,7 @@
             });
 
             document.getElementById('results').innerHTML = html;
-            
+
             // Render Chart
             if (scenario.datos_para_grafica) {
                 renderChart(scenario.datos_para_grafica);
@@ -381,14 +382,14 @@
             });
 
             lastY = doc.lastAutoTable.finalY + 20;
-            
+
             // Torsion Table (Supply)
             doc.setFontSize(10);
             doc.setTextColor(150, 100, 0);
             doc.text("Suministro de Torcedoras (Upstream Required)", 40, lastY + 10);
-            
+
             const torRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(t => [
-                t.maquina, `Ref ${t.ref}`, t.horas + "h", Math.round(t.kg_aportados) + " kg"
+                t.maquina, t.ref, t.horas + "h", Math.round(t.kg_aportados) + " kg"
             ]);
 
             doc.autoTable({
