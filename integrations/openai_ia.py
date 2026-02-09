@@ -357,7 +357,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "Analista de producción. Resume la estrategia de mezcla dinámica de deniers para llenar los 28 puestos en una frase técnica muy corta."},
-                    {"role": "user", "content": f"Producción concurrente activada. Operarios max: {max(dataset_ops)}. Mezcla JIT completada."}
+                    {"role": "user", "content": f"Producción concurrente activada. Operarios max: {max(dataset_ops) if dataset_ops else 0}. Mezcla JIT completada."}
                 ],
                 max_tokens=60
             )
