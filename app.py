@@ -129,10 +129,14 @@ def api_ai_chat():
     orders = db.get_orders()
     
     # Simple context injection
-    from integrations.openai_ia import OpenAI
+    from openai import OpenAI
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     try:
+        # Check if API Key is set
+        if not os.getenv("OPENAI_API_KEY"):
+             return jsonify({"error": "OPENAI_API_KEY no configurada en Vercel"})
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
