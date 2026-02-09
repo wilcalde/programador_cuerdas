@@ -125,7 +125,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         return [b for b in backlog_status if b['kg_pendientes'] > 0.01]
 
     # Calcular Techo de la Planta (Suma de capacidades reales de T11-T16)
-    # Buscamos la capacidad máxima "promedio" para tener un techo estable
     total_plant_kgh = 0
     machine_base_kgh = {} # {m_id: base_kgh}
     for m_id in ["T11", "T12", "T14", "T15", "T16"]:
@@ -168,35 +167,28 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
             else:
                 # Caso B: Balance por Mezcla. Mezclar con una referencia más ligera (B)
-                # Buscamos la referencia disponible con la tasa más baja para maximizar capacidad de mezcla
                 eligibles_sorted_tasa = sorted(eligibles, key=lambda x: x['kgh_unitario'])
                 ref_B = eligibles_sorted_tasa[0]
                 
                 if ref_B['ref'] == ref_A['ref'] and len(eligibles) > 1:
-                    # Si la más ligera es la misma A, buscamos la siguiente más ligera
                     ref_B = eligibles_sorted_tasa[1]
                 
                 Tasa_B = ref_B['kgh_unitario']
                 
                 if Tasa_A > Tasa_B:
                     # Resolver: Pa + Pb = 28  Y  Pa*Tasa_A + Pb*Tasa_B <= GSC
-                    # Pa <= (GSC - 28*Tasa_B) / (Tasa_A - Tasa_B)
                     Pa_ideal = (total_plant_kgh - 28 * Tasa_B) / (Tasa_A - Tasa_B)
-                    Pa = max(0, min(27, math.floor(Pa_ideal))) # Al menos 1 puesto para B si mezclamos
+                    Pa = max(0, min(27, math.floor(Pa_ideal))) 
                     Pb = 28 - Pa
                     
                     mezcla_slot.append({"ref_obj": ref_A, "puestos": int(Pa)})
                     mezcla_slot.append({"ref_obj": ref_B, "puestos": int(Pb)})
                 else:
-                    # En el raro caso que todas las tasas sean iguales y superen GSC
-                    # (Significa que la planta físicamente no puede correr 28 puestos de nada)
-                    # Aun así, por regla de "Prohibición de Ociosidad", asignamos 28.
-                    # El balance de masa posterior mostrará la "FALTA" de suministro.
                     mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
 
             if not mezcla_slot: break
             
-            # Calcular duración del slot (Shortest Task first)
+            # Calcular duración del slot 
             duracion_slot = horas_disponibles_dia
             for item in mezcla_slot:
                 b = item['ref_obj']
@@ -244,14 +236,13 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         cronograma_final.append(dia_entry)
         current_time += timedelta(days=1)
 
-    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla)
-    kgh_lookup_fast = {} # Pre-procesar para velocidad
+    # 5. Sincronización JIT de Torcedoras
+    kgh_lookup_fast = {} 
     for denier, d_data in torsion_capacities.items():
         for m in d_data.get('machines', []):
             kgh_lookup_fast[(m['machine_id'], denier)] = m['kgh']
 
     for dia in cronograma_final:
-        # Sumar demanda del día por referencia
         demanda_dia = {}
         for t in dia["turnos_asignados"]:
             r = t["referencia"]
@@ -264,11 +255,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         h_max_torsion = 0
         maquinas_usadas = set()
         
-        # Aporte de suministro por referencia para el balance posterior
         suministro_por_referencia = {}
         
         for ref, kg_objetivo in demanda_dia.items():
-            compatibles = sorted([m_id for m_id in ["T11", "T12", "T14", "T15", "T16"] if (m_id, ref) in kgh_lookup_fast or True]) # Fallback always true
+            compatibles = sorted([m_id for m_id in ["T11", "T12", "T14", "T15", "T16"] if (m_id, ref) in kgh_lookup_fast or True]) 
             
             kg_pending = kg_objetivo
             for m_id in compatibles:
@@ -291,14 +281,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 kg_pending -= kg_asig
                 kg_dia_torsion += kg_asig
                 h_max_torsion = max(h_max_torsion, h_asig)
-                
-                # Acumular para el balance por referencia
                 suministro_por_referencia[ref] = suministro_por_referencia.get(ref, 0) + kg_asig
         
-        # Calcular consumo total del rebobinado para este día
         consumo_total_rebobinado = sum(demanda_dia.values())
         
-        # Generar detalle de balance por referencia
         balance_refs = []
         for ref in demanda_dia.keys():
             kg_dem = demanda_dia.get(ref, 0)
@@ -312,7 +298,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 "status": "OK" if abs(diff) < 0.5 else ("EXCESO" if diff > 0 else "FALTA")
             })
 
-        # Verificación de balance de masa global
         diferencia_global = abs(kg_dia_torsion - consumo_total_rebobinado)
         balance_perfecto = diferencia_global < 0.5
         
@@ -339,7 +324,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         tabla_finalizacion_rows.append({
             "referencia": b['ref'],
             "fecha_finalizacion": f_date.strftime("%Y-%m-%d %H:%M"),
-            "puestos_promedio": "Dinámico (Multitasking)",
+            "puestos_promedio": "Dinámico",
             "kg_totales": round(b['kg_total_inicial'], 2)
         })
 
@@ -350,7 +335,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     comentario = "Algoritmo Multitasking: 28 puestos ocupados mediante mezcla dinámica de deniers."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
-        from openai import OpenAI
         client = OpenAI(api_key=api_key)
         try:
             ai_res = client.chat.completions.create(

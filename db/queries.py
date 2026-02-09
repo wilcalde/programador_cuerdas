@@ -1,6 +1,5 @@
 from .client import get_supabase_client
 from typing import List, Dict, Any
-from supabase import create_client, Client
 from logic.formulas import get_n_optimo_rew, get_kgh_torsion
 
 class DBQueries:
@@ -34,46 +33,32 @@ class DBQueries:
         data = {
             "denier_id": denier_id,
             "total_kg": kg,
-            "priority": 3, # Default priority
+            "priority": 3,
             "required_date": required_date
         }
         return self.supabase.table("orders").insert(data).execute()
     
     def update_order(self, order_id: str, denier_id: str, kg: float, required_date: str):
-        """Update an existing order"""
         data = {
             "denier_id": denier_id,
             "total_kg": kg,
-            "priority": 3, # Reset to default or keep as is (3 for now)
+            "priority": 3,
             "required_date": required_date
         }
         return self.supabase.table("orders").update(data).eq("id", order_id).execute()
     
     def delete_order(self, order_id: str):
-        """Delete an order by ID"""
         return self.supabase.table("orders").delete().eq("id", order_id).execute()
 
     def update_produced_kg(self, order_id: str, produced_kg: float):
         return self.supabase.table("orders").update({"produced_kg": produced_kg}).eq("id", order_id).execute()
 
-    # --- Reports ---
-    def create_report(self, machine_id: str, report_type: str, description: str, impact_hours: float):
-        data = {
-            "machine_id": machine_id,
-            "type": report_type,
-            "description": description,
-            "impact_hours": impact_hours
-        }
-        return self.supabase.table("reports").insert(data).execute()
-
     # --- Machine-Denier Configurations ---
     def get_machine_denier_configs(self) -> List[Dict[str, Any]]:
-        """Get all machine-denier configurations with calculated Kg/h"""
         response = self.supabase.table("machine_denier_config").select("*").execute()
         return response.data if response.data else []
     
     def upsert_machine_denier_config(self, machine_id: str, denier: str, rpm: int, torsiones_metro: int, husos: int):
-        """Create or update machine-denier configuration"""
         data = {
             "machine_id": machine_id,
             "denier": denier,
@@ -81,22 +66,14 @@ class DBQueries:
             "torsiones_metro": torsiones_metro,
             "husos": husos
         }
-        # Use upsert to create or update
         return self.supabase.table("machine_denier_config").upsert(data, on_conflict="machine_id,denier").execute()
-    
-    def get_config_for_machine(self, machine_id: str) -> List[Dict[str, Any]]:
-        """Get all denier configurations for a specific machine"""
-        response = self.supabase.table("machine_denier_config").select("*").eq("machine_id", machine_id).execute()
-        return response.data if response.data else []
     
     # --- Rewinder-Denier Configurations ---
     def get_rewinder_denier_configs(self) -> List[Dict[str, Any]]:
-        """Get all rewinder denier configurations"""
         response = self.supabase.table("rewinder_denier_config").select("*").execute()
         return response.data if response.data else []
     
     def upsert_rewinder_denier_config(self, denier: str, mp_segundos: float, tm_minutos: float):
-        """Create or update rewinder denier configuration"""
         data = {
             "denier": denier,
             "mp_segundos": mp_segundos,
@@ -106,7 +83,6 @@ class DBQueries:
     
     # --- Shifts ---
     def get_shifts(self, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
-        """Get shifts for a date range"""
         query = self.supabase.table("shifts").select("*")
         if start_date:
             query = query.gte("date", start_date)
@@ -114,9 +90,8 @@ class DBQueries:
             query = query.lte("date", end_date)
         response = query.order("date").execute()
         return response.data if response.data else []
-    
+
     def upsert_shift(self, date: str, working_hours: int):
-        """Create or update a shift for a specific date"""
         data = {
             "date": date,
             "working_hours": working_hours
@@ -125,19 +100,15 @@ class DBQueries:
     
     # --- Scheduling Helper ---
     def get_all_scheduling_data(self) -> Dict[str, Any]:
-        """Get all data needed for production scheduling"""
         orders = self.get_orders()
         rewinder_configs = self.get_rewinder_denier_configs()
         torsion_configs = self.get_machine_denier_configs()
         
-        # Convert rewinder configs to a dict keyed by denier
         rewinder_dict = {}
         for config in rewinder_configs:
             denier = config['denier']
             tm_min = config['tm_minutos']
-            # Calculate Kg per hour at 80% productivity
             kg_per_hour = (60 / tm_min) * 0.8 if tm_min > 0 else 0
-            # Calculate N (machines per operator)
             n_optimo = get_n_optimo_rew(tm_min, config['mp_segundos'])
             
             rewinder_dict[denier] = {
@@ -147,25 +118,17 @@ class DBQueries:
                 "n_optimo": n_optimo
             }
         
-        # Calculate Torsion capacities per denier
         torsion_capacities = {}
-        # Backlog deniers (from orders)
         backlog_deniers = {o.get('deniers', {}).get('name') for o in orders if o.get('deniers')}
         
         for denier_name in backlog_deniers:
             if not denier_name: continue
-            
-            # Find all machines that can produce this denier
             compatible_torsion = [c for c in torsion_configs if c['denier'] == denier_name]
-            
-            # Sum capacities
             total_kgh = 0
             machines_details = []
             
             for config in compatible_torsion:
-                # Try to get numeric denier value from name (e.g., '12000' -> 12000, '6000 expo' -> 6000)
                 try:
-                    # Use split to get the first numeric part
                     denier_val = float(denier_name.split(' ')[0])
                     kgh = get_kgh_torsion(
                         denier=denier_val,
@@ -190,7 +153,7 @@ class DBQueries:
             "orders": orders,
             "rewinder_capacities": rewinder_dict,
             "torsion_capacities": torsion_capacities,
-            "shifts": self.get_shifts() # Fetch all defined shifts
+            "shifts": self.get_shifts()
         }
 
     # --- Saved Schedules ---
