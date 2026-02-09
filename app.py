@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import json
 import traceback
 import sys
+from db.queries import DBQueries
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "ciplas_master_cord_secret")
@@ -63,7 +64,6 @@ def backlog():
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
-    from db.queries import DBQueries
     db = DBQueries()
     denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
@@ -76,7 +76,6 @@ def add_backlog():
 
 @app.route('/backlog/edit', methods=['POST'])
 def edit_backlog():
-    from db.queries import DBQueries
     db = DBQueries()
     order_id = request.form.get('order_id')
     denier_id = request.form.get('denier_id')
@@ -90,7 +89,6 @@ def edit_backlog():
 
 @app.route('/backlog/delete/<order_id>', methods=['POST'])
 def delete_backlog(order_id):
-    from db.queries import DBQueries
     db = DBQueries()
     db.delete_order(order_id)
     flash("Pedido eliminado", "success")
@@ -98,7 +96,6 @@ def delete_backlog(order_id):
 
 @app.route('/programming')
 def programming():
-    from db.queries import DBQueries
     db = DBQueries()
     sc_data = db.get_all_scheduling_data()
     return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
@@ -142,9 +139,6 @@ def api_ai_chat():
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return jsonify({"error": "OPENAI_API_KEY no configurada"})
-
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -176,7 +170,6 @@ def api_save_schedule():
     if not plan:
         return jsonify({"error": "No hay plan para guardar"}), 400
         
-    from db.queries import DBQueries
     db = DBQueries()
     try:
         db.save_scheduling_scenario(name, plan)
@@ -201,6 +194,7 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
+    # Pre-calculate next 15 days for shifts
     # Pre-calculate next 15 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
@@ -231,23 +225,49 @@ def config():
 
 @app.route('/config/torsion/update', methods=['POST'])
 def update_torsion():
-    from db.queries import DBQueries
     db = DBQueries()
     machine_id = request.form.get('machine_id')
+    
+    if not machine_id:
+        flash("Error: No se especificó la máquina", "error")
+        return redirect(url_for('config'))
+    
     # Fetch all denier configs from form
     denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
+    updated_deniers = []
+    errors = []
+    
     for denier in denier_options:
         rpm = request.form.get(f"rpm_{denier}", type=int)
         torsiones = request.form.get(f"torsiones_{denier}", type=int)
         husos = request.form.get(f"husos_{denier}", type=int)
-        if rpm and torsiones and husos:
-            db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)
-    flash(f"Configuración de {machine_id} actualizada", "success")
+        
+        # Only save if all three values are provided (not None)
+        # This allows saving zero values while skipping empty fields
+        if rpm is not None and torsiones is not None and husos is not None:
+            try:
+                db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)
+                updated_deniers.append(denier)
+            except Exception as e:
+                errors.append(f"Error guardando denier {denier}: {str(e)}")
+    
+    # Provide detailed feedback
+    if errors:
+        for error in errors:
+            flash(error, "error")
+    
+    if updated_deniers:
+        if len(updated_deniers) == len(denier_options):
+            flash(f"✓ Configuración de {machine_id} actualizada completamente", "success")
+        else:
+            flash(f"✓ Configuración de {machine_id} actualizada para deniers: {', '.join(updated_deniers)}", "success")
+    else:
+        flash(f"No se actualizó ninguna configuración para {machine_id}", "warning")
+    
     return redirect(url_for('config'))
 
 @app.route('/config/rewinder/update', methods=['POST'])
 def update_rewinder():
-    from db.queries import DBQueries
     db = DBQueries()
     denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
     for denier in denier_options:
@@ -260,7 +280,6 @@ def update_rewinder():
 
 @app.route('/config/shifts/update', methods=['POST'])
 def update_shifts():
-    from db.queries import DBQueries
     db = DBQueries()
     # Get all shift dates from form keys
     for key, value in request.form.items():
@@ -272,7 +291,6 @@ def update_shifts():
 
 @app.route('/config/denier/add', methods=['POST'])
 def add_denier():
-    from db.queries import DBQueries
     db = DBQueries()
     name = request.form.get('name')
     cycle = request.form.get('cycle', type=float)
