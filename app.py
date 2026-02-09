@@ -55,6 +55,8 @@ def backlog():
     db = DBQueries()
     orders = db.get_orders()
     deniers = db.get_deniers()
+    # Sort deniers numerically by name
+    deniers.sort(key=lambda x: int(x['name']) if x['name'].isdigit() else 0)
     return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders, deniers=deniers)
 
 @app.route('/backlog/add', methods=['POST'])
