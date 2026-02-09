@@ -1,100 +1,68 @@
-<!-- templates/programming.html -->
 {% extends "base.html" %}
 
+{% block header_title %}📅 Programación de Producción{% endblock %}
+
 {% block content %}
-<div class="container" style="max-width: 1200px;">
-    <div class="header-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <div>
-            <h1 class="premium-title">Programación de Producción</h1>
-            <p style="color: #94A3B8;">Optimización Algorítmica de Capacidad (Rewinder & Torcedoras)</p>
-        </div>
-        <div style="display: flex; gap: 1rem;">
-            <button onclick="generateSchedule()" class="btn btn-primary" id="btnGen">
-                <i class="fas fa-magic"></i> Generar Programa IA
-            </button>
-            <button onclick="exportToPDF()" class="btn btn-secondary" id="btnPDF" style="display: none;">
-                <i class="fas fa-file-pdf"></i> PDF
-            </button>
-        </div>
+<div class="card glass" style="border-left: 4px solid var(--accent-blue);">
+    <p>💡 La programación es generada por IA basándose en el backlog y la capacidad de los 28 puestos de Rewinder
+        disponible.</p>
+</div>
+
+<div style="margin-top: 2rem; display: flex; gap: 1rem;">
+    <button class="btn btn-primary" onclick="generateSchedule()">
+        <i class="bi bi-arrow-repeat"></i> 🔥 Recalcular Programación con IA
+    </button>
+</div>
+
+<div id="loading" style="display: none; margin-top: 2rem; text-align: center;">
+    <div class="spinner"
+        style="border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto;">
     </div>
+    <p style="margin-top: 1rem; color: #38BDF8;">🤖 IA analizando backlog y capacidades...</p>
+</div>
 
-    <!-- Panel de Estados / Loading -->
-    <div id="loading" style="display: none; text-align: center; padding: 3rem;" class="card glass">
-        <div class="spinner"></div>
-        <h3 style="margin-top: 1.5rem; color: #60A5FA;">Analizando Backlog y Restricciones...</h3>
-        <p style="color: #94A3B8;">Calculando mezcla óptima de puestos para máxima eficiencia.</p>
-    </div>
-
-    <!-- Resultados -->
-    <div id="results" style="display: none;">
-        <!-- Resumen Ejecutivo -->
-        <div class="grid" style="grid-template-columns: 1fr 2fr; gap: 1.5rem; margin-bottom: 2rem;">
-            <div class="card glass" id="globalStats">
-                <!-- Inyectado por JS -->
-            </div>
-            <div class="card glass">
-                <h3>Estrategia de Optimización</h3>
-                <p id="strategyComment" style="font-style: italic; color: #CBD5E1; margin-top: 1rem;"></p>
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    <span class="badge badge-info">Mezcla JIT: Activa</span>
-                    <span class="badge badge-success">Puestos Libres: 0</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Gráficas -->
-        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
-            <div class="card glass">
-                <h3>Carga de Operarios y Producción</h3>
-                <canvas id="resourceChart" height="200"></canvas>
-            </div>
-            <div class="card glass">
-                <h3>Kilogramos Totales por Día</h3>
-                <canvas id="dailyTotalsChart" height="200"></canvas>
-            </div>
-        </div>
-
-        <!-- Tabla de Finalización por Referencia -->
-        <div class="card glass" style="margin-bottom: 2rem;">
-            <h3>Proyección de Finalización por Referencia</h3>
-            <div style="overflow-x: auto;">
-                <table class="premium-table">
-                    <thead>
-                        <tr>
-                            <th>Referencia</th>
-                            <th>Fecha/Hora Estimada de Fin</th>
-                            <th>Asignación Promedio</th>
-                            <th>Total Kg</th>
-                        </tr>
-                    </thead>
-                    <tbody id="finishTableBody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Cronograma Detallado -->
-        <div id="dailySchedule"></div>
+<div id="results" style="margin-top: 2rem;">
+    <div class="card glass" style="text-align: center; padding: 3rem;">
+        <i class="bi bi-calendar-x" style="font-size: 3rem; color: #1E293B;"></i>
+        <p style="color: #94A3B8; margin-top: 1rem;">Aún no se ha generado una programación dinámica para este periodo.
+        </p>
     </div>
 </div>
 
-<!-- Scripts -->
+<style>
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .chart-container {
+        position: relative;
+        height: 350px;
+        width: 100%;
+        margin-top: 2rem;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
 <script>
     let currentPlan = null;
-    let resourceChartInstance = null;
-    let totalsChartInstance = null;
+    let mainChart = null;
+    let dailyChart = null;
 
     async function generateSchedule() {
-        const btnGen = document.getElementById('btnGen');
-        const loading = document.getElementById('loading');
-        const results = document.getElementById('results');
-        
-        btnGen.disabled = true;
-        loading.style.display = 'block';
-        results.style.display = 'none';
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('results').innerHTML = '';
+
+        if (mainChart) mainChart.destroy();
+        if (dailyChart) dailyChart.destroy();
 
         try {
             const response = await fetch('/api/generate_schedule', {
@@ -103,212 +71,340 @@
             });
             const data = await response.json();
 
-            loading.style.display = 'none';
-            btnGen.disabled = false;
+            document.getElementById('loading').style.display = 'none';
 
             if (!response.ok || data.error) {
                 const errorMsg = data.error || `Error del servidor (${response.status})`;
-                results.innerHTML = `
+                document.getElementById('results').innerHTML = `
                     <div class="card glass" style="border-left: 4px solid #EF4444;">
                         <h3 style="color: #EF4444;">❌ Error de Programación</h3>
                         <p style="margin-top: 1rem;">${errorMsg}</p>
-                        ${data.traceback ? `<pre style="font-size: 0.7rem; color: #94A3B8; margin-top: 1rem; background: rgba(0,0,0,0.3); padding: 1rem; overflow: auto;">${data.traceback.join('\n')}</pre>` : ''}
                     </div>
                 `;
-                results.style.display = 'block';
                 return;
             }
 
-            currentPlan = data.scenario;
-            renderPlan(currentPlan);
-            document.getElementById('btnPDF').style.display = 'block';
+            const scenario = data.scenario;
+            currentPlan = scenario;
+            const res = scenario.resumen_global;
 
-        } catch (err) {
-            loading.style.display = 'none';
-            btnGen.disabled = false;
-            alert("Error de red: " + err.message);
-        }
-    }
-
-    function renderPlan(plan) {
-        document.getElementById('results').style.display = 'block';
-        
-        // Stats
-        document.getElementById('globalStats').innerHTML = `
-            <h3>Resumen Ejecutivo</h3>
-            <div style="margin-top: 1rem;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <span>Fin Total:</span>
-                    <strong style="color: #60A5FA;">${plan.resumen_global.fecha_finalizacion_total}</strong>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <span>Total Kg:</span>
-                    <strong>${plan.resumen_global.kg_totales_plan.toLocaleString()} kg</strong>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span>Días Programados:</span>
-                    <span class="badge badge-info">${plan.resumen_global.total_dias_programados}</span>
-                </div>
-            </div>
-        `;
-
-        document.getElementById('strategyComment').textContent = plan.resumen_global.comentario_estrategia;
-
-        // Charts
-        renderCharts(plan.datos_para_grafica);
-
-        // Finish Table
-        const finishBody = document.getElementById('finishTableBody');
-        finishBody.innerHTML = '';
-        plan.tabla_finalizacion_referencias.forEach(row => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${row.referencia}</td>
-                <td style="color: #60A5FA; font-weight: bold;">${row.fecha_finalizacion}</td>
-                <td>${row.puestos_promedio}</td>
-                <td>${row.kg_totales.toLocaleString()} kg</td>
-            `;
-            finishBody.appendChild(tr);
-        });
-
-        // Daily Details
-        const dailyContainer = document.getElementById('dailySchedule');
-        dailyContainer.innerHTML = '';
-        plan.cronograma_diario.forEach(dia => {
-            const card = document.createElement('div');
-            card.className = 'card glass';
-            card.style.marginBottom = '1.5rem';
-            
-            const isBalanced = dia.requerimiento_abastecimiento?.check_balance?.balance_perfecto;
-            
-            card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 1rem; margin-bottom: 1rem;">
-                    <h3 style="color: #FACC15;">Día: ${dia.fecha}</h3>
+            let html = `
+            <div class="card glass" style="border-top: 4px solid #10B981; margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div>
-                        <span class="badge">${dia.metricas_dia.operarios_maximos} Operarios</span>
-                        <span class="badge badge-success">${dia.metricas_dia.puestos_activos} Puestos</span>
+                        <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
+                        <p style="margin-top:0.5rem; color: #94A3B8;">${res.comentario_estrategia}</p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="savePlan()" style="padding: 0.5rem 1rem; font-size: 0.8rem;">
+                            <i class="bi bi-save"></i> Guardar Plan
+                        </button>
+                        <button class="btn btn-primary" onclick="exportToPDF()" style="padding: 0.5rem 1rem; font-size: 0.8rem; background: #3B82F6;">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
+                <div class="grid" style="margin-top: 2rem;">
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Fin Estimado</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.fecha_finalizacion_total}</div>
+                    </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Días Programados</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.total_dias_programados}</div>
+                    </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Total Kg en el Plan</div>
+                        <div class="metric-value" style="font-size: 1.2rem; color: #10B981;">${res.kg_totales_plan?.toLocaleString() || '0'} kg</div>
                     </div>
                 </div>
                 
-                <h4 style="margin-bottom: 0.5rem;"><i class="fas fa-sync"></i> Detalle Rebobinado (Rewinder)</h4>
-                <div style="overflow-x: auto; margin-bottom: 1.5rem;">
-                    <table class="premium-table small">
+                <div class="chart-container">
+                    <canvas id="resourceChart"></canvas>
+                </div>
+            </div>
+
+            <h2 style="margin: 2rem 0 1rem;">🏗️ Requerimientos de Materia Prima (Extrusión)</h2>
+            <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #FACC15;">
+                <p style="margin-bottom: 1rem; font-size: 0.9rem; color: #94A3B8;">Detalle diario de kilos por referencia requeridos para abastecer la línea de torsión.</p>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
                         <thead>
-                            <tr>
-                                <th>#</th> <th>Referencia</th> <th>Inicio</th> <th>Fin</th> <th>Puestos</th> <th>Ops</th> <th>Kg</th>
+                            <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
+                                <th style="padding: 0.75rem;">Fecha</th>
+                                <th style="padding: 0.75rem;">Referencia</th>
+                                <th style="padding: 0.75rem;">Cantidad Requerida</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${dia.turnos_asignados.map(t => `
-                                <tr>
-                                    <td>${t.orden_secuencia}</td>
-                                    <td>${t.referencia}</td>
-                                    <td>${t.hora_inicio}</td>
-                                    <td>${t.hora_fin}</td>
-                                    <td>${t.puestos_utilizados}</td>
-                                    <td>${t.operarios_calculados}</td>
-                                    <td style="font-weight: bold;">${t.kg_producidos.toLocaleString()}</td>
-                                </tr>
-                            `).join('')}
+            `;
+
+            scenario.cronograma_diario.forEach(dia => {
+                if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
+                    dia.requerimiento_abastecimiento.balance_por_referencia.forEach((b, idx) => {
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.75rem;">${idx === 0 ? `<strong>${dia.fecha}</strong>` : ''}</td>
+                                <td style="padding: 0.75rem;">${b.referencia}</td>
+                                <td style="padding: 0.75rem; font-weight: 700; color: #10B981;">${Math.round(b.kg_suministro).toLocaleString()} kg</td>
+                            </tr>
+                        `;
+                    });
+                }
+            });
+
+            html += `
                         </tbody>
                     </table>
                 </div>
+            </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-                    <div style="flex: 1;">
-                         <h4 style="margin-bottom: 0.5rem;"><i class="fas fa-balance-scale"></i> Balance de Masa JIT (Torsión)</h4>
-                         <table class="premium-table small">
-                            <thead>
-                                <tr>
-                                    <th>Ref</th> <th>Suministro</th> <th>Consumo</th> <th>Balance</th> <th>Estado</th>
+            <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
+            <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #38BDF8;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 0.75rem;">Referencia</th>
+                            <th style="padding: 0.75rem;">Fecha de Terminación</th>
+                            <th style="padding: 0.75rem;">Puestos Promedio</th>
+                            <th style="padding: 0.75rem;">Total Kg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            scenario.tabla_finalizacion_referencias.forEach(row => {
+                html += `
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.75rem;"><strong>${row.referencia}</strong></td>
+                        <td style="padding: 0.75rem; color: #10B981;">📅 ${row.fecha_finalizacion}</td>
+                        <td style="padding: 0.75rem;">${row.puestos_promedio}</td>
+                        <td style="padding: 0.75rem;">${Math.round(row.kg_totales)} kg</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            </div>
+
+            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario Detallado</h2>
+            `;
+
+            scenario.cronograma_diario.forEach(dia => {
+                html += `
+                <div class="card glass" style="margin-bottom: 2.5rem; border-bottom: 2px solid var(--accent-blue);">
+                    <h3 style="background: rgba(56, 189, 248, 0.1); padding: 0.5rem 1rem; border-radius: 4px; border-left: 4px solid var(--accent-blue); margin-bottom: 1.5rem;">
+                        📅 Día: ${dia.fecha}
+                    </h3>
+                    
+                    <h4 style="color: var(--accent-blue); margin-bottom: 0.75rem;"><i class="bi bi-gear-wide-connected"></i> Programación de Rebobinado (Rewinder)</h4>
+                    <div style="overflow-x: auto; margin-bottom: 1.5rem;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                            <thead style="background: rgba(0,0,0,0.3);">
+                                <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
+                                    <th style="padding: 0.5rem;">#</th>
+                                    <th style="padding: 0.5rem;">Referencia</th>
+                                    <th style="padding: 0.5rem;">Horario</th>
+                                    <th style="padding: 0.5rem;">Puestos</th>
+                                    <th style="padding: 0.5rem;">Operarios</th>
+                                    <th style="padding: 0.5rem;">Producción</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${dia.requerimiento_abastecimiento.balance_por_referencia.map(b => `
-                                    <tr>
-                                        <td>${b.referencia}</td>
-                                        <td>${b.kg_suministro.toLocaleString()}</td>
-                                        <td>${b.kg_consumo.toLocaleString()}</td>
-                                        <td style="color: ${b.balance >= 0 ? '#10B981' : '#EF4444'}">${b.balance}</td>
-                                        <td><span class="badge ${b.status === 'OK' ? 'badge-success' : 'badge-warning'}">${b.status}</span></td>
-                                    </tr>
-                                `).join('')}
+                `;
+
+                dia.turnos_asignados.forEach(b => {
+                    html += `
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 0.75rem;">${b.orden_secuencia}</td>
+                            <td style="padding: 0.75rem;"><strong>${b.referencia}</strong></td>
+                            <td style="padding: 0.75rem;">${b.hora_inicio} - ${b.hora_fin}</td>
+                            <td style="padding: 0.75rem;">${b.puestos_utilizados}</td>
+                            <td style="padding: 0.75rem;">${b.operarios_calculados}</td>
+                            <td style="padding: 0.75rem;">${Math.round(b.kg_producidos)} kg</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
                             </tbody>
-                         </table>
+                        </table>
                     </div>
-                    <div class="card" style="background: rgba(0,0,0,0.2); min-width: 250px;">
-                        <h4 style="font-size: 0.9rem; margin-bottom: 1rem;">Resumen de Abastecimiento</h4>
-                        <div style="font-size: 0.85rem;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-                                <span>Demanda Total:</span> <span>${dia.requerimiento_abastecimiento.check_balance.consumo_total_kg.toLocaleString()} kg</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-                                <span>Suministro Torsión:</span> <span>${dia.requerimiento_abastecimiento.check_balance.suministro_total_kg.toLocaleString()} kg</span>
-                            </div>
-                            <div style="margin-top: 1rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); text-align: center;">
-                                <span style="color: ${isBalanced ? '#10B981' : '#F59E0B'}; font-weight: bold;">
-                                    ${isBalanced ? '✅ BALANCE PERFECTO' : '⚠️ DESVIACIÓN DETECTADA'}
-                                </span>
-                            </div>
+
+                    <h4 style="color: #FACC15; margin-bottom: 0.75rem;"><i class="bi bi-supply"></i> Requerimiento de Suministro (Torcedoras T11-T16)</h4>
+                    <div style="overflow-x: auto; padding: 0.5rem; background: rgba(0,0,0,0.1); border-radius: 8px;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
+                                    <th style="padding: 0.5rem;">Máquina</th>
+                                    <th style="padding: 0.5rem;">Referencia</th>
+                                    <th style="padding: 0.5rem;">Horas Requeridas</th>
+                                    <th style="padding: 0.5rem;">Aporte Estimado (Kg)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                if (dia.requerimiento_abastecimiento?.detalle_torcedoras) {
+                    dia.requerimiento_abastecimiento.detalle_torcedoras.forEach(t => {
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.5rem;">${t.maquina}</td>
+                                <td style="padding: 0.5rem;">${t.ref}</td>
+                                <td style="padding: 0.5rem;">${t.horas} h</td>
+                                <td style="padding: 0.5rem; color: #10B981;">+${Math.round(t.kg_aportados)} kg</td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: #94A3B8; text-align: right;">
+                             Demanda Total del Día: <strong>${Math.round(dia.requerimiento_abastecimiento?.kg_totales_demandados || 0)} kg</strong> 
+                             | Horas de Pumping: <strong>${dia.requerimiento_abastecimiento?.horas_produccion_conjunta || 0} h</strong>
                         </div>
                     </div>
+
+                    <h4 style="color: #38BDF8; margin: 1rem 0 0.5rem; font-size: 0.9rem;"><i class="bi bi-scale"></i> Balance de Masa por Referencia</h4>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="color: #94A3B8; border-bottom: 1px solid var(--border-color);">
+                                    <th style="padding: 0.4rem;">Referencia</th>
+                                    <th style="padding: 0.4rem;">Suministro (kg)</th>
+                                    <th style="padding: 0.4rem;">Consumo (kg)</th>
+                                    <th style="padding: 0.4rem;">Balance</th>
+                                    <th style="padding: 0.4rem;">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
+                    dia.requerimiento_abastecimiento.balance_por_referencia.forEach(b => {
+                        const statusColor = b.status === 'OK' ? '#10B981' : (b.status === 'EXCESO' ? '#FACC15' : '#EF4444');
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.4rem;"><strong>${b.referencia}</strong></td>
+                                <td style="padding: 0.4rem;">${Math.round(b.kg_suministro)} kg</td>
+                                <td style="padding: 0.4rem;">${Math.round(b.kg_consumo)} kg</td>
+                                <td style="padding: 0.4rem; font-weight: 700;">${b.balance > 0 ? '+' : ''}${Math.round(b.balance)} kg</td>
+                                <td style="padding: 0.4rem;"><span style="color: ${statusColor}; font-weight: 700;">${b.status}</span></td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+                `;
+            });
+
+            html += `
+            <h2 style="margin: 2rem 0 1rem;">📊 Gráfica de Kg Totales Diarios</h2>
+            <div class="card glass" style="margin-bottom: 2rem;">
+                <div class="chart-container" style="height: 250px;">
+                    <canvas id="dailyTotalsChart"></canvas>
+                </div>
+            </div>
             `;
-            dailyContainer.appendChild(card);
-        });
+
+            document.getElementById('results').innerHTML = html;
+
+            if (scenario.datos_para_grafica) {
+                renderChart(scenario.datos_para_grafica);
+                renderDailyTotalsChart(scenario.datos_para_grafica);
+            }
+
+        } catch (err) {
+            console.error(err);
+            document.getElementById('results').innerHTML = `<div class='card glass'>Error inesperado. Intente de nuevo.</div>`;
+        }
     }
 
-    function renderCharts(data) {
-        if (resourceChartInstance) resourceChartInstance.destroy();
-        if (totalsChartInstance) totalsChartInstance.destroy();
-
-        const ctx1 = document.getElementById('resourceChart').getContext('2d');
-        resourceChartInstance = new Chart(ctx1, {
-            type: 'line',
-            data: {
-                labels: data.labels,
-                datasets: [{
-                    label: 'Operarios',
-                    data: data.dataset_operarios,
-                    borderColor: '#60A5FA',
-                    backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
-                    x: { grid: { display: false } }
-                }
-            }
-        });
-
-        const ctx2 = document.getElementById('dailyTotalsChart').getContext('2d');
-        totalsChartInstance = new Chart(ctx2, {
+    function renderDailyTotalsChart(data) {
+        if (dailyChart) dailyChart.destroy();
+        const ctx = document.getElementById('dailyTotalsChart').getContext('2d');
+        dailyChart = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: data.labels,
                 datasets: [{
-                    label: 'Kg Totales',
+                    label: 'Kg Totales x Día',
                     data: data.dataset_kg_produccion,
-                    backgroundColor: '#FACC15',
-                    borderRadius: 5
+                    backgroundColor: 'rgba(16, 185, 129, 0.5)',
+                    borderColor: '#10B981',
+                    borderWidth: 1
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
                 scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
-                    x: { grid: { display: false } }
+                    y: { beginAtZero: true, ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                    x: { ticks: { color: '#94A3B8' }, grid: { display: false } }
                 }
             }
         });
+    }
+
+    function renderChart(data) {
+        if (mainChart) mainChart.destroy();
+        const ctx = document.getElementById('resourceChart').getContext('2d');
+        mainChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    {
+                        label: 'Operarios Max',
+                        data: data.dataset_operarios,
+                        type: 'line',
+                        borderColor: '#6366F1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+                        yAxisID: 'yOps',
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Producción (Kg)',
+                        data: data.dataset_kg_produccion,
+                        backgroundColor: 'rgba(56, 189, 248, 0.3)',
+                        borderColor: '#38BDF8',
+                        yAxisID: 'yKg'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    yOps: { type: 'linear', position: 'left', title: { display: true, text: 'Operarios' }, ticks: { color: '#6366F1' } },
+                    yKg: { type: 'linear', position: 'right', title: { display: true, text: 'Kilogramos' }, ticks: { color: '#38BDF8' }, grid: { display: false } }
+                }
+            }
+        });
+    }
+
+    async function savePlan() {
+        if (!currentPlan) return;
+        try {
+            const res = await fetch('/api/save_schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentPlan)
+            });
+            const data = await res.json();
+            if (data.success) alert("¡Plan guardado!");
+            else alert("Error: " + data.error);
+        } catch (e) { console.error(e); }
     }
 
     function exportToPDF() {
@@ -322,73 +418,36 @@
             d.setFillColor(30, 41, 59);
             d.rect(0, 0, pageWidth, 80, 'F');
             d.setTextColor(255, 255, 255);
-            d.setFontSize(22);
-            d.setFont("helvetica", "bold");
+            d.setFontSize(22); d.setFont("helvetica", "bold");
             d.text("CIPLAS S.A. - Plan de Producción", 40, 45);
-            d.setFontSize(10);
-            d.setFont("helvetica", "normal");
+            d.setFontSize(10); d.setFont("helvetica", "normal");
             d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
         };
 
         const drawFooter = (d, pNum, pTot) => {
             d.setFontSize(8); d.setTextColor(150);
-            d.text(`CIPLAS S.A. - Plan de Producción - Página ${pNum} de ${pTot}`, pageWidth/2, pageHeight - 20, { align: 'center' });
+            d.text(`Página ${pNum} de ${pTot}`, pageWidth/2, pageHeight - 20, { align: 'center' });
         };
 
         drawHeader(doc);
-        
-        doc.setTextColor(50);
-        doc.setFontSize(11);
         let yPos = 110;
-        
-        doc.setFont("helvetica", "bold");
-        doc.text("Resumen Ejecutivo:", 40, yPos);
-        yPos += 20;
-        
+        doc.setTextColor(50); doc.setFontSize(11); doc.setFont("helvetica", "bold");
+        doc.text("Resumen Ejecutivo:", 40, yPos); yPos += 20;
         doc.setFont("helvetica", "normal");
-        doc.text(`\u2022 Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 50, yPos);
-        yPos += 15;
-        doc.text(`\u2022 Total Kilogramos: ${currentPlan.resumen_global.kg_totales_plan.toLocaleString()} kg`, 50, yPos);
-        yPos += 15;
-        doc.text(`\u2022 Días Programados: ${currentPlan.resumen_global.total_dias_programados}`, 50, yPos);
-        yPos += 25;
-
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.rect(40, yPos - 15, pageWidth - 80, 40, 'FD');
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(9);
-        const splitStrategy = doc.splitTextToSize(`Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`, pageWidth - 100);
-        doc.text(splitStrategy, 50, yPos + 5);
-        yPos += 60;
+        doc.text(`- Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 50, yPos); yPos += 15;
+        doc.text(`- Total Kilogramos: ${currentPlan.resumen_global.kg_totales_plan.toLocaleString()} kg`, 50, yPos); yPos += 15;
+        doc.text(`- Dias Programados: ${currentPlan.resumen_global.total_dias_programados}`, 50, yPos); yPos += 30;
 
         try {
             const resourceCanvas = document.getElementById('resourceChart');
-            const totalsCanvas = document.getElementById('dailyTotalsChart');
-            
             if (resourceCanvas) {
-                doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-                doc.text("Gráfica: Carga de Operarios y Producción", 40, yPos);
-                yPos += 10;
                 doc.addImage(resourceCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 180);
                 yPos += 200;
             }
-            
-            if (totalsCanvas) {
-                if (yPos > 600) { doc.addPage(); yPos = 40; }
-                doc.setFont("helvetica", "bold");
-                doc.text("Gráfica: Kilogramos Totales por Día", 40, yPos);
-                yPos += 10;
-                doc.addImage(totalsCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 150);
-                yPos += 170;
-            }
         } catch (e) { console.error("PDF Charts Error:", e); }
 
-        doc.addPage();
-        yPos = 40;
-        doc.setFontSize(14); doc.setTextColor(30);
-        doc.text("Materia Prima & Finalización", 40, yPos);
-        
+        doc.addPage(); yPos = 40;
+        doc.setFontSize(14); doc.text("Materia Prima & Finalización", 40, yPos);
         const rawMaterialsData = [];
         currentPlan.cronograma_diario.forEach(dia => {
             if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
@@ -403,96 +462,28 @@
             head: [['Fecha', 'Referencia', 'Kg Requeridos (Extrusión)']],
             body: rawMaterialsData,
             theme: 'grid',
-            headStyles: { fillColor: [250, 204, 21], textColor: [0, 0, 0], fontStyle: 'bold' },
-            styles: { fontSize: 8 },
-            margin: { left: 40, right: 40 }
-        });
-
-        const summaryData = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
-        doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 20,
-            head: [['Referencia', 'Finalización Estimada', 'Asignación', 'Kg Totales']],
-            body: summaryData,
-            theme: 'grid',
-            headStyles: { fillColor: [56, 189, 248], fontStyle: 'bold' },
+            headStyles: { fillColor: [250, 204, 21], textColor: [0, 0, 0] },
             styles: { fontSize: 8 },
             margin: { left: 40, right: 40 }
         });
 
         yPos = doc.lastAutoTable.finalY + 40;
-
-        // --- Daily Details (Continuous flow) ---
         currentPlan.cronograma_diario.forEach((dia) => {
-            // Smart Break Check: If less than ~250pt remains, better use a new page
             if (yPos > 600) { doc.addPage(); yPos = 40; }
-
-            doc.setFillColor(56, 189, 248);
-            doc.rect(40, yPos - 10, pageWidth - 80, 25, 'F');
-            doc.setTextColor(255, 255, 255);
-            doc.setFontSize(12);
-            doc.text(`DETALLE DÍA: ${dia.fecha}`, 50, yPos + 7);
-            yPos += 30;
-
-            doc.setTextColor(30); doc.setFontSize(11);
-            doc.text("Rebobinado (Rewinder)", 40, yPos);
-            const rwData = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, t.operarios_calculados, t.kg_producidos.toLocaleString()]);
+            doc.setFillColor(56, 189, 248); doc.rect(40, yPos - 10, pageWidth - 80, 25, 'F');
+            doc.setTextColor(255, 255, 255); doc.setFontSize(12);
+            doc.text(`DETALLE DÍA: ${dia.fecha}`, 50, yPos + 7); yPos += 30;
+            doc.setTextColor(30);
+            const rwEntries = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, Math.round(t.kg_producidos).toLocaleString()]);
             doc.autoTable({
-                startY: yPos + 10,
-                head: [['#', 'Referencia', 'Inicio', 'Fin', 'Puestos', 'Ops', 'Kg']],
-                body: rwData,
-                theme: 'striped',
-                styles: { fontSize: 8 },
-                headStyles: { fillColor: [30, 41, 59] },
-                margin: { left: 40, right: 40 }
+                startY: yPos, head: [['#', 'Referencia', 'Inicio', 'Fin', 'Puestos', 'Kg']], body: rwEntries, theme: 'striped', styles: { fontSize: 8 }, margin: { left: 40, right: 40 }
             });
-
-            yPos = doc.lastAutoTable.finalY + 20;
-
-            if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
-                if (yPos > 700) { doc.addPage(); yPos = 40; }
-                doc.setFontSize(10); doc.text("Balance de Masa", 40, yPos);
-                const balData = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [b.referencia, b.kg_suministro.toLocaleString(), b.kg_consumo.toLocaleString(), b.balance.toLocaleString(), b.status]);
-                doc.autoTable({
-                    startY: yPos + 10,
-                    head: [['Referencia', 'Suministro', 'Consumo', 'Balance', 'Estado']],
-                    body: balData,
-                    theme: 'grid',
-                    styles: { fontSize: 7 },
-                    headStyles: { fillColor: [226, 232, 240], textColor: [0, 0, 0] },
-                    margin: { left: 40, right: 40 },
-                    didParseCell: function(data) {
-                        if (data.section === 'body' && data.column.index === 4) {
-                            if (data.cell.raw === 'OK') data.cell.styles.textColor = [16, 185, 129];
-                            else if (data.cell.raw === 'FALTA') data.cell.styles.textColor = [239, 68, 68];
-                        }
-                    }
-                });
-                yPos = doc.lastAutoTable.finalY + 40;
-            }
+            yPos = doc.lastAutoTable.finalY + 30;
         });
 
-        const pageCount = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            drawFooter(doc, i, pageCount);
-        }
-        doc.save(`Plan_Produccion_Ciplas_${new Date().toISOString().split('T')[0]}.pdf`);
+        const pc = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pc; i++) { doc.setPage(i); drawFooter(doc, i, pc); }
+        doc.save(`Plan_Ciplas_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 </script>
-
-<style>
-    .badges-container { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
-    .badge-info { background: #3B82F6; }
-    .spinner {
-        border: 4px solid rgba(255, 255, 255, 0.1);
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        border-left-color: #60A5FA;
-        animation: spin 1s linear infinite;
-        display: inline-block;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .premium-table.small th, .premium-table.small td { padding: 0.5rem; font-size: 0.8rem; }
-</style>
 {% endblock %}
