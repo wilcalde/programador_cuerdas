@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS shifts (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Enable RLS
 ALTER TABLE shifts ENABLE ROW LEVEL SECURITY;
 
+-- Allow public access (for now, as per app patterns)
 CREATE POLICY "Public shifts access" ON shifts FOR ALL USING (true);

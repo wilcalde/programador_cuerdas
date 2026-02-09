@@ -60,10 +60,6 @@ body {
     flex-grow: 1;
 }
 
-.nav-item {
-    margin-bottom: 0.5rem;
-}
-
 .nav-link {
     display: flex;
     align-items: center;
@@ -170,7 +166,8 @@ h3 {
     text-transform: uppercase;
 }
 
-.form-control, .input-field {
+.form-control,
+.input-field {
     width: 100%;
     padding: 0.75rem 1rem;
     background: rgba(255, 255, 255, 0.05);
@@ -182,13 +179,14 @@ h3 {
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-body.light-mode .form-control, 
+body.light-mode .form-control,
 body.light-mode .input-field {
     background: #FFFFFF;
     border: 1px solid #CBD5E1;
 }
 
-.form-control:focus, .input-field:focus {
+.form-control:focus,
+.input-field:focus {
     outline: none;
     border-color: var(--accent-blue);
     box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);

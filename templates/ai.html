@@ -21,7 +21,8 @@
 </div>
 
 <div style="margin-top: 1.5rem;">
-    <button class="btn glass" onclick="generateScenario()" style="border: 1px solid var(--accent-blue); color: var(--accent-blue); width: 100%;">
+    <button class="btn glass" onclick="generateScenario()"
+        style="border: 1px solid var(--accent-blue); color: var(--accent-blue); width: 100%;">
         Generar Escenario Óptimo (Auto)
     </button>
 </div>
@@ -46,7 +47,7 @@
                 body: JSON.stringify({ message: userMsg })
             });
             const data = await response.json();
-            
+
             box.innerHTML += `<div class="message assistant" style="background: rgba(56, 189, 248, 0.1); padding: 1rem; border-radius: 12px; margin-bottom: 1rem; align-self: flex-start; max-width: 80%;">${data.response || data.error}</div>`;
             box.scrollTop = box.scrollHeight;
         } catch (err) {
