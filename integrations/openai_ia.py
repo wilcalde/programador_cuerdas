@@ -40,7 +40,7 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Di
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Generate a deterministic operational production schedule in Python.
-    Features HR Load Balancing (Parallel Streams) and GUARANTEED Mass Balance.
+    Features HR Load Balancing (Parallel Streams) and Hard Coupling (JIT).
     """
     
     # 1. Prepare Backlog List (Deterministic SPT order)
@@ -213,19 +213,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             "kg_totales": round(b['kg_total_inicial'], 2)
         })
     
-    # --- NUEVA LÓGICA DE SUMINISTRO (Balance de Masa Garantizado) ---
-    # 1. Agrupamos demanda total y fecha límite (último día que el Rewinder pide esa ref)
-    demanda_total_kg = {}
-    ultimo_dia_necesidad = {}
-    
-    for dia in cronograma_final:
-        fecha = dia["fecha"]
-        for det in dia["requerimiento_abastecimiento"]["detalle_torcedoras"]:
-            ref = det["ref"]
-            demanda_total_kg[ref] = demanda_total_kg.get(ref, 0) + det["kg_aportados"]
-            ultimo_dia_necesidad[ref] = fecha 
-
-    # 2. Capacidades y Máquinas Universales
+    # --- NUEVA LÓGICA DE SUMINISTRO (Hard Coupling - JIT) ---
+    # 1. Capacidades y Máquinas Universales
     kgh_lookup = {}
     all_machines_in_plant = ["T11", "T12", "T14", "T15", "T16"]
     for denier, data in torsion_capacities.items():
@@ -234,91 +223,58 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             kgh_lookup[(m_id, denier)] = m['kgh']
             if m_id not in all_machines_in_plant: all_machines_in_plant.append(m_id)
 
-    # 3. Distribución por Objetivo de Masa (Backwards Filling)
-    machine_occupancy = {} # {fecha: {machine_id: ref}}
-    machine_kg_day = {} # {fecha: {machine_id: {kg, horas}}}
-    
-    # Ordenamos referencias: las que terminan último primero para llenar desde el final hacia atrás
-    lista_refs = sorted(demanda_total_kg.keys(), key=lambda r: ultimo_dia_necesidad[r], reverse=True)
-    all_scheduled_dates = sorted([d["fecha"] for d in cronograma_final])
-    
-    for ref in lista_refs:
-        kg_faltante = demanda_total_kg[ref]
-        idx_limite = all_scheduled_dates.index(ultimo_dia_necesidad[ref])
+    # 2. Sincronización Día a Día (Sin inventarios)
+    for dia in cronograma_final:
+        # Identificar qué referencias pide el Rewinder ESTE día
+        demanda_dia = {} # {ref: kg}
+        for det in dia["requerimiento_abastecimiento"]["detalle_torcedoras"]:
+            ref = det["ref"]
+            demanda_dia[ref] = demanda_dia.get(ref, 0) + det["kg_aportados"]
         
-        # Retrocedemos desde el día límite cubriendo la masa total
-        curr_idx = idx_limite
-        while kg_faltante > 0.1:
-            if curr_idx < 0:
-                # Caso Crítico: No hay más días en el cronograma original. Creamos días previos.
-                d_obj = datetime.strptime(all_scheduled_dates[0], "%Y-%m-%d") - timedelta(days=abs(curr_idx))
-                f_str = d_obj.strftime("%Y-%m-%d")
-            else:
-                f_str = all_scheduled_dates[curr_idx]
-            
-            if f_str not in machine_occupancy: machine_occupancy[f_str] = {}
-            if f_str not in machine_kg_day: machine_kg_day[f_str] = {}
+        # Si no hay demanda de Rewinder, Torsión NO trabaja (Hard Coupling)
+        if not demanda_dia:
+            dia["requerimiento_abastecimiento"] = {"kg_totales_demandados": 0, "horas_produccion_conjunta": 0, "detalle_torcedoras": []}
+            continue
 
-            # Máquinas compatibles (con fallback universal)
+        detalle_final = []
+        kg_total_dia = 0
+        h_max_dia = 0
+        maquinas_usadas = set()
+
+        # Asignar máquinas a las referencias del día
+        for ref, kg_objetivo in demanda_dia.items():
+            # Máquinas compatibles
             compatibles = sorted([m for m in all_machines_in_plant if (m, ref) in kgh_lookup])
             if not compatibles: compatibles = sorted(all_machines_in_plant)
             
+            kg_pendiente_ref = kg_objetivo
             for m_id in compatibles:
-                if kg_faltante <= 0.1: break
-                # Especialización: 1 máquina/ref/día
-                if m_id not in machine_occupancy[f_str]:
-                    vel = kgh_lookup.get((m_id, ref), 50.0)
-                    if vel <= 0: vel = 50.0
-                    
-                    horas_asig = min(24.0, kg_faltante / vel)
-                    kg_asig = horas_asig * vel
-                    
-                    machine_occupancy[f_str][m_id] = ref
-                    machine_kg_day[f_str][m_id] = {"kg": round(kg_asig, 2), "horas": round(horas_asig, 2)}
-                    kg_faltante -= kg_asig
-            
-            curr_idx -= 1
-            # Failsafe: Si kg_faltante no baja tras 100 iteraciones (ej. capacidad 0), salir
-            if curr_idx < -100: break
+                if m_id in maquinas_usadas or kg_pendiente_ref <= 0.1: continue
+                
+                vel = kgh_lookup.get((m_id, ref), 50.0)
+                if vel <= 0: vel = 50.0
+                
+                # Cap de 24h: No podemos producir más de lo que la máquina da en un día
+                horas_necesarias = kg_pendiente_ref / vel
+                horas_asig = min(24.0, horas_necesarias)
+                kg_asig = horas_asig * vel
+                
+                detalle_final.append({
+                    "maquina": m_id,
+                    "ref": ref,
+                    "horas": round(horas_asig, 2),
+                    "kg_aportados": round(kg_asig, 2)
+                })
+                
+                maquinas_usadas.add(m_id)
+                kg_pendiente_ref -= kg_asig
+                kg_total_dia += kg_asig
+                h_max_dia = max(h_max_dia, horas_asig)
 
-    # 4. Re-ensamblaje y Limpieza de Datos Previos
-    dates_with_torsion = sorted(machine_kg_day.keys())
-    
-    # Limpiamos el nodo de abastecimiento en los días originales
-    for dia in cronograma_final:
-        dia["requerimiento_abastecimiento"] = {"kg_totales_demandados": 0, "horas_produccion_conjunta": 0, "detalle_torcedoras": []}
-
-    # Insertamos o actualizamos días con la nueva carga
-    for f_str in dates_with_torsion:
-        dia_match = next((d for d in cronograma_final if d["fecha"] == f_str), None)
-        if not dia_match:
-            # Crear día buffer al inicio si estamos bombeando antes de la fecha de inicio
-            dia_match = {
-                "fecha": f_str,
-                "turnos_asignados": [],
-                "requerimiento_abastecimiento": {"kg_totales_demandados": 0, "horas_produccion_conjunta": 0, "detalle_torcedoras": []},
-                "metricas_dia": {"operarios_maximos": 0, "puestos_activos": 0}
-            }
-            cronograma_final.insert(0, dia_match)
-        
-        detalle = []
-        kg_dia = 0
-        h_max = 0
-        for m_id in sorted(machine_kg_day[f_str].keys()):
-            data = machine_kg_day[f_str][m_id]
-            detalle.append({
-                "maquina": m_id,
-                "ref": machine_occupancy[f_str][m_id],
-                "horas": data["horas"],
-                "kg_aportados": data["kg"]
-            })
-            kg_dia += data["kg"]
-            h_max = max(h_max, data["horas"])
-        
-        dia_match["requerimiento_abastecimiento"] = {
-            "kg_totales_demandados": round(kg_dia, 2),
-            "horas_produccion_conjunta": round(h_max, 2),
-            "detalle_torcedoras": detalle
+        dia["requerimiento_abastecimiento"] = {
+            "kg_totales_demandados": round(kg_total_dia, 2),
+            "horas_produccion_conjunta": round(h_max_dia, 2),
+            "detalle_torcedoras": detalle_final
         }
 
     # 5. Graph Data Generation
