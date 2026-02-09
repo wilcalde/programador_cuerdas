@@ -58,8 +58,17 @@ def backlog():
     db = DBQueries()
     orders = db.get_orders()
     deniers = db.get_deniers()
-    # Sort deniers numerically by name
-    deniers.sort(key=lambda x: int(x['name']) if x['name'].isdigit() else 0)
+    
+    # Sort deniers numerically by name, handling suffixes like 'expo'
+    def denier_sort_key(d):
+        name = d.get('name', '0')
+        numeric_part = name.split(' ')[0]
+        try:
+            return (float(numeric_part), name)
+        except ValueError:
+            return (0.0, name)
+            
+    deniers.sort(key=denier_sort_key)
     return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders, deniers=deniers)
 
 @app.route('/backlog/add', methods=['POST'])
@@ -194,7 +203,6 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
-    # Pre-calculate next 15 days for shifts
     # Pre-calculate next 15 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
