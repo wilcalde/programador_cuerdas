@@ -214,7 +214,7 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
-    # Pre-calculate next 30 days for shifts starting from tomorrow
+    # Pre-calculate next 30 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
     end_date = start_date + timedelta(days=29)
@@ -251,7 +251,7 @@ def update_torsion():
         flash("Error: No se especificó la máquina", "error")
         return redirect(url_for('config'))
     
-    # Fetch all denier options from catlog
+    # Fetch all denier configs from form
     denier_options = ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000 expo", "18000"]
     updated_deniers = []
     errors = []
@@ -261,7 +261,8 @@ def update_torsion():
         torsiones = request.form.get(f"torsiones_{denier}", type=int)
         husos = request.form.get(f"husos_{denier}", type=int)
         
-        # Only save if all three values are provided
+        # Only save if all three values are provided (not None)
+        # This allows saving zero values while skipping empty fields
         if rpm is not None and torsiones is not None and husos is not None:
             try:
                 db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)
@@ -269,12 +270,18 @@ def update_torsion():
             except Exception as e:
                 errors.append(f"Error guardando denier {denier}: {str(e)}")
     
+    # Provide detailed feedback
     if errors:
         for error in errors:
             flash(error, "error")
     
     if updated_deniers:
-        flash(f"✓ Configuración de {machine_id} actualizada", "success")
+        if len(updated_deniers) == len(denier_options):
+            flash(f"✓ Configuración de {machine_id} actualizada completamente", "success")
+        else:
+            flash(f"✓ Configuración de {machine_id} actualizada para deniers: {', '.join(updated_deniers)}", "success")
+    else:
+        flash(f"No se actualizó ninguna configuración para {machine_id}", "warning")
     
     return redirect(url_for('config'))
 
@@ -293,6 +300,7 @@ def update_rewinder():
 @app.route('/config/shifts/update', methods=['POST'])
 def update_shifts():
     db = DBQueries()
+    # Get all shift dates from form keys
     for key, value in request.form.items():
         if key.startswith('shift_'):
             date_str = key.replace('shift_', '')
@@ -318,12 +326,17 @@ def reports():
 def ai_consultancy():
     return render_template('ai.html', active_page='ai', title='Consultoría IA')
 
+# Health check and Diagnostics
 @app.route('/health')
 def health():
     diagnostics = {
         "status": "online",
         "python": sys.version,
-        "database": "unknown"
+        "path": sys.path,
+        "environment": {
+            "SUPABASE_URL": "set" if os.environ.get("SUPABASE_URL") else "missing",
+            "SUPABASE_KEY": "set" if os.environ.get("SUPABASE_KEY") else "missing"
+        }
     }
     try:
         from db.queries import DBQueries
@@ -332,15 +345,25 @@ def health():
         diagnostics["database"] = "connected"
     except Exception as e:
         diagnostics["database_error"] = str(e)
+        diagnostics["traceback"] = traceback.format_exc().split('\n')
+    
     return jsonify(diagnostics)
 
+# Global error handler to catch and show 500 details
 @app.errorhandler(Exception)
 def handle_exception(e):
+    # Pass through HTTP errors
     if hasattr(e, 'code') and e.code < 500:
         return jsonify(error=str(e)), e.code
+    
     tb = traceback.format_exc()
-    return jsonify({"error": str(e), "traceback": tb.split('\n')}), 500
+    print(tb) # Will show in Vercel logs
+    return jsonify({
+        "error": str(e),
+        "traceback": tb.split('\n')
+    }), 500
 
+# Error handler for 404
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
