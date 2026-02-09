@@ -2,7 +2,7 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from db.queries import DBQueries
 from integrations.openai_ia import generate_production_schedule, get_ai_optimization_scenario
-import pandas as pd
+from datetime import datetime, timedelta
 import json
 
 app = Flask(__name__)
@@ -186,13 +186,13 @@ def config():
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
     # Pre-calculate next 15 days for shifts
-    today = pd.Timestamp.now().date()
-    start_date = today + pd.Timedelta(days=1)
-    end_date = start_date + pd.Timedelta(days=14)
-    shifts = db.get_shifts(str(start_date), str(end_date))
+    today = datetime.now().date()
+    start_date = today + timedelta(days=1)
+    end_date = start_date + timedelta(days=14)
+    shifts_db = db.get_shifts(str(start_date), str(end_date))
     
     # Map shifts by date for easy lookup
-    shifts_dict = {str(s['date']): s['working_hours'] for s in shifts}
+    shifts_dict = {str(s['date']): s['working_hours'] for s in shifts_db}
     calendar = []
     curr = start_date
     while curr <= end_date:
@@ -202,8 +202,8 @@ def config():
             'weekday': ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][curr.weekday()],
             'hours': shifts_dict.get(str(curr), 24)
         })
-        curr += pd.Timedelta(days=1)
-    
+        curr += timedelta(days=1)
+
     return render_template('config.html', 
                          active_page='config', 
                          title='Configuración',

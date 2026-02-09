@@ -1,8 +1,4 @@
 flask
 supabase
-gspread
-google-auth
-pandas
 openai
 python-dotenv
-plotly
