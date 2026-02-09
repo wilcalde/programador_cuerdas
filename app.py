@@ -59,6 +59,18 @@ def backlog():
     orders = db.get_orders()
     deniers = db.get_deniers()
     
+    # Ensure critical deniers exist in DB
+    existing_names = {d['name'] for d in deniers}
+    if "6000 expo" not in existing_names or "12000 expo" not in existing_names:
+        try:
+            for crit in ["6000 expo", "12000 expo"]:
+                if crit not in existing_names:
+                    db.create_denier(crit, 37.0)
+            # Refresh list
+            deniers = db.get_deniers()
+        except:
+            pass
+
     # Sort deniers numerically by name, handling suffixes like 'expo'
     def denier_sort_key(d):
         name = d.get('name', '0')
