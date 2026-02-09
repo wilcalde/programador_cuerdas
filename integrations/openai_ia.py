@@ -63,18 +63,15 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 backlog_list.append({"ref": d_name, "kg_total": kg})
     
     # Sort by Ref name as simple priority for now, or maintain provided order
-    # For now, we follow the order as they came or simple ascending Ref
     backlog_list.sort(key=lambda x: str(x['ref']))
 
     # 2. Master Data Lookup
-    # Note: rewinder_capacities is already keyed by denier name from app.py
     
     # 3. Calendar Setup
     default_start_date = datetime.now() + timedelta(days=1)
     current_time = default_start_date.replace(hour=0, minute=0, second=0, microsecond=0)
     
     if shifts and len(shifts) > 0:
-        # Use first available shift date as start
         try:
             first_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
             current_time = first_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -89,14 +86,12 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         ref_name = str(item['ref'])
         kg_restantes = item['kg_total']
         
-        # OBTENER DATOS TÉCNICOS REWINDER
         cap = rewinder_capacities.get(ref_name, {})
         tasa_unitaria = cap.get('kg_per_hour', 0)
         n_maq_operario = cap.get('n_optimo', 1)
         
         if tasa_unitaria == 0: continue 
         
-        # REGLA SAGRADA: COPAR REWINDER (28 PUESTOS)
         puestos_activos = 28
         velocidad_planta_rew = tasa_unitaria * puestos_activos
         operarios_reales = math.ceil(puestos_activos / n_maq_operario)
@@ -113,25 +108,21 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             fin_bloque = "24:00" if duracao_bloque_horas == horas_disponibles_hoy else current_time.strftime("%H:%M")
             
             # --- CÁLCULO DE SUMINISTRO (Upstream - Torcedoras) ---
-            # Las torcedoras deben trabajar para reponer kg_producidos_bloque
             t_cap = torsion_capacities.get(ref_name, {})
             machines_data = t_cap.get('machines', [])
             
             if not machines_data:
-                # Fallback if no specific machines are configured
                 machines_data = [{"machine_id": "T-Gen", "kgh": 50}]
             
-            # Capacidad conjunta de todas las máquinas compatibles para esta referencia
             vel_total_torsion = sum(m.get('kgh', 0) for m in machines_data)
-            if vel_total_torsion <= 0: vel_total_torsion = 50 # Final fallback
+            if vel_total_torsion <= 0: vel_total_torsion = 50 
             
-            # Horas que el GRUPO de máquinas debe trabajar SIMULTÁNEAMENTE
             horas_torsion_suministro = kg_producidos_bloque / vel_total_torsion
             
             detalle_suministro = []
             for m in machines_data:
                 v_maq = m.get('kgh', 0)
-                if v_maq <= 0 and len(machines_data) == 1: v_maq = 50 # Fallback for T-Gen
+                if v_maq <= 0 and len(machines_data) == 1: v_maq = 50
                 
                 detalle_suministro.append({
                     "maquina": m.get('machine_id', 'T-UKN'),
@@ -140,7 +131,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                     "ref": ref_name
                 })
             
-            # Segmentación de datos por día
             dia_entry = next((d for d in cronograma_final if d["fecha"] == fecha_str), None)
             if not dia_entry:
                 dia_entry = {
@@ -151,7 +141,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 }
                 cronograma_final.append(dia_entry)
             
-            # Añadir bloque de rebobinado
             dia_entry["turnos_asignados"].append({
                 "orden_secuencia": len(dia_entry["turnos_asignados"]) + 1,
                 "referencia": ref_name,
@@ -162,9 +151,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 "kg_producidos": round(kg_producidos_bloque, 2)
             })
 
-            # Acumular requerimiento de abastecimiento del día (TEMP para post-procesado)
             dia_entry["requerimiento_abastecimiento"]["detalle_torcedoras"].extend(detalle_suministro)
-            # Metricas del día
             dia_entry["metricas_dia"]["operarios_maximos"] = max(dia_entry["metricas_dia"]["operarios_maximos"], operarios_reales)
             
             kg_restantes -= kg_producidos_bloque
@@ -179,8 +166,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             "kg_totales": round(item['kg_total'], 2)
         })
 
-    # --- NUEVA LÓGICA DE SUMINISTRO (Balance de Masas y Especialización) ---
-    # 1. Agregamos la demanda bruta por día/referencia
+    # --- NUEVA LÓGICA DE SUMINISTRO (Balance de Masas y Especialización JIT) ---
+    # 1. Identificamos la demanda nativa (lo que el Rewinder hace hoy) vs demanda futura
+    nativa_dia = {dia["fecha"]: {t["referencia"] for t in dia["turnos_asignados"]} for dia in cronograma_final}
+    
     demanda_acumulada = {} # {fecha: {ref: kg_total}}
     for dia in cronograma_final:
         f = dia["fecha"]
@@ -189,8 +178,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             r = det["ref"]
             demanda_acumulada[f][r] = demanda_acumulada[f].get(r, 0) + det["kg_aportados"]
 
-    # 2. Mapeo de capacidades por máquina/denier para acceso rápido
-    kgh_lookup = {} # {(machine_id, denier): kgh}
+    # 2. Capacidades y Máquinas
+    kgh_lookup = {}
     all_machines = set()
     for denier, data in torsion_capacities.items():
         for m in data.get('machines', []):
@@ -198,47 +187,45 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             kgh_lookup[(m_id, denier)] = m['kgh']
             all_machines.add(m_id)
 
-    # 3. Procesamiento en reversa para Pre-bombeo recursivo
+    # 3. Procesamiento en reversa (pumping) con prioridad nativa
     machine_work = {} 
     sorted_dates = sorted(demanda_acumulada.keys(), reverse=True)
     
     for i, fecha_actual in enumerate(sorted_dates):
         if fecha_actual not in machine_work: machine_work[fecha_actual] = {}
         
-        # Intentamos cubrir la demanda de cada referencia en este día
-        for ref in list(demanda_acumulada[fecha_actual].keys()):
+        # Prioridad 1: Referencias que el Rewinder está haciendo HOY (Native)
+        refs_nativas = [r for r in demanda_acumulada[fecha_actual].keys() if r in nativa_dia.get(fecha_actual, set())]
+        # Prioridad 2: El resto (referencias pre-bombedas del futuro)
+        otras_refs = [r for r in demanda_acumulada[fecha_actual].keys() if r not in nativa_dia.get(fecha_actual, set())]
+        
+        for ref in (refs_nativas + otras_refs):
             kg_por_cubrir = demanda_acumulada[fecha_actual][ref]
-            
-            # Buscar máquinas compatibles con esta referencia
-            maquinas_compatibles = [m for m in all_machines if (m, ref) in kgh_lookup]
+            maquinas_compatibles = sorted([m for m in all_machines if (m, ref) in kgh_lookup])
             
             for m_id in maquinas_compatibles:
                 if kg_por_cubrir <= 0.01: break
-                
-                # Si la máquina está libre este día, la asignamos
                 if m_id not in machine_work[fecha_actual]:
                     vel = kgh_lookup[(m_id, ref)]
                     if vel <= 0: continue
                     
-                    horas_necesarias = kg_por_cubrir / vel
-                    horas_asig = min(24, horas_necesarias)
+                    horas_asig = min(24, kg_por_cubrir / vel)
                     kg_asig = horas_asig * vel
                     
                     machine_work[fecha_actual][m_id] = {
-                        "ref": f"Ref {ref}",
+                        "ref": f"{ref}", # FIX: No duplicar "Ref"
                         "horas": round(horas_asig, 2),
                         "kg": round(kg_asig, 2)
                     }
                     kg_por_cubrir -= kg_asig
             
-            # Si después de usar todas las máquinas libres aún falta stock...
+            # Overflow al día anterior
             if kg_por_cubrir > 0.01:
-                # Movemos el excedente al día anterior (pre-bombeo)
                 if i + 1 < len(sorted_dates):
                     fecha_previa = sorted_dates[i+1]
                     demanda_acumulada[fecha_previa][ref] = demanda_acumulada[fecha_previa].get(ref, 0) + kg_por_cubrir
 
-    # 4. Re-ensamblamos el cronograma_final con los nuevos datos consolidados
+    # 4. Re-ensamblamos
     for dia in cronograma_final:
         f = dia["fecha"]
         detalle_final = []
@@ -275,7 +262,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     }
 
     # 6. AI Commentary
-    comentario = "Estrategia Max-Rewinder: Suministro de Torcedoras especializado y balanceado."
+    comentario = "Estrategia Max-Rewinder: Suministro de Torcedoras especializado y balanceado JIT."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -285,7 +272,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "Analista de producción. Resume el plan de abastecimiento y operarios en una frase corta técnica."},
-                    {"role": "user", "content": f"Programados {len(backlog_list)} días. Operarios max: {max(dataset_operarios)}. Torsión especializada 1 ref por máquina."}
+                    {"role": "user", "content": f"Programados {len(backlog_list)} días. Operarios max: {max(dataset_operarios)}. Torsión JIT integrada."}
                 ],
                 max_tokens=60
             )
