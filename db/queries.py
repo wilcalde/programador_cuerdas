@@ -114,7 +114,7 @@ class DBQueries:
             query = query.lte("date", end_date)
         response = query.order("date").execute()
         return response.data if response.data else []
-
+    
     def upsert_shift(self, date: str, working_hours: int):
         """Create or update a shift for a specific date"""
         data = {
@@ -163,9 +163,10 @@ class DBQueries:
             machines_details = []
             
             for config in compatible_torsion:
-                # Try to get numeric denier value from name (e.g., '12000' -> 12000)
+                # Try to get numeric denier value from name (e.g., '12000' -> 12000, '6000 expo' -> 6000)
                 try:
-                    denier_val = float(denier_name)
+                    # Use split to get the first numeric part
+                    denier_val = float(denier_name.split(' ')[0])
                     kgh = get_kgh_torsion(
                         denier=denier_val,
                         rpm=config['rpm'],

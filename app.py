@@ -233,7 +233,7 @@ def update_torsion():
         return redirect(url_for('config'))
     
     # Fetch all denier configs from form
-    denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
+    denier_options = ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000 expo", "18000"]
     updated_deniers = []
     errors = []
     
@@ -269,7 +269,7 @@ def update_torsion():
 @app.route('/config/rewinder/update', methods=['POST'])
 def update_rewinder():
     db = DBQueries()
-    denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
+    denier_options = ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000 expo", "18000"]
     for denier in denier_options:
         mp = request.form.get(f"mp_{denier}", type=float)
         tm = request.form.get(f"tm_{denier}", type=float)
