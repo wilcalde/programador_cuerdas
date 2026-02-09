@@ -2,27 +2,61 @@
 
 {% block head %}
 <style>
-    .tab-content { display: none; transition: opacity 0.3s; }
-    .tab-content.active { display: block; }
-    .tab-item { transition: all 0.2s; }
-    .tab-item:hover { color: var(--accent-blue); }
-    .tab-item.active { border-bottom: 2px solid var(--accent-blue); color: var(--accent-blue); font-weight: 600; }
-    
-    .config-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    .config-table th, .config-table td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
-    .config-table th { color: #94A3B8; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-    
+    .tab-content {
+        display: none;
+        transition: opacity 0.3s;
+    }
+
+    .tab-content.active {
+        display: block;
+    }
+
+    .tab-item {
+        transition: all 0.2s;
+    }
+
+    .tab-item:hover {
+        color: var(--accent-blue);
+    }
+
+    .tab-item.active {
+        border-bottom: 2px solid var(--accent-blue);
+        color: var(--accent-blue);
+        font-weight: 600;
+    }
+
+    .config-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+    }
+
+    .config-table th,
+    .config-table td {
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .config-table th {
+        color: #94A3B8;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
     .input-field {
         width: 100%;
         padding: 0.5rem;
     }
-    
+
     .machine-selector {
         margin-bottom: 2rem;
         display: flex;
         gap: 1rem;
         flex-wrap: wrap;
     }
+
     .machine-btn {
         padding: 0.5rem 1rem;
         border: 1px solid var(--border-color);
@@ -31,6 +65,7 @@
         cursor: pointer;
         color: var(--text-color);
     }
+
     .machine-btn.active {
         background: var(--accent-blue);
         color: white;
@@ -44,7 +79,8 @@
 {% block content %}
 <div class="card glass">
     <!-- Tabs Navigation -->
-    <div class="tabs" style="display: flex; gap: 2rem; border-bottom: 1px solid var(--border-color); margin-bottom: 2rem;">
+    <div class="tabs"
+        style="display: flex; gap: 2rem; border-bottom: 1px solid var(--border-color); margin-bottom: 2rem;">
         <div class="tab-item active" onclick="switchTab('torsion', this)">Torsión</div>
         <div class="tab-item" onclick="switchTab('rewinder', this)">Rewinder</div>
         <div class="tab-item" onclick="switchTab('catalog', this)">Catálogo</div>
@@ -54,8 +90,9 @@
     <!-- Torsion Content -->
     <div id="tab-torsion" class="tab-content active">
         <h3>Configuración por Máquina y Denier</h3>
-        <p style="color: #94A3B8; margin-bottom: 2rem;">Seleccione una máquina para ajustar los parámetros de producción.</p>
-        
+        <p style="color: #94A3B8; margin-bottom: 2rem;">Seleccione una máquina para ajustar los parámetros de
+            producción.</p>
+
         <div class="machine-selector">
             {% for machine in machines %}
             <button class="machine-btn" onclick="selectMachine('{{ machine.id }}', this)">
@@ -79,19 +116,29 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"] %}
+                        {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000",
+                        "12000 expo", "18000"] %}
                         {% set config = machine_configs.get(machine.id, {}).get(denier_name, {}) %}
                         <tr>
                             <td style="font-weight: 600;">{{ denier_name }}</td>
-                            <td><input type="number" name="rpm_{{ denier_name }}" class="input-field" value="{{ config.rpm or 0 }}" onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
-                            <td><input type="number" name="torsiones_{{ denier_name }}" class="input-field" value="{{ config.torsiones_metro or 0 }}" onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
-                            <td><input type="number" name="husos_{{ denier_name }}" class="input-field" value="{{ config.husos or 0 }}" onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
+                            <td><input type="number" name="rpm_{{ denier_name }}" class="input-field"
+                                    value="{{ config.rpm or 0 }}"
+                                    onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
+                            <td><input type="number" name="torsiones_{{ denier_name }}" class="input-field"
+                                    value="{{ config.torsiones_metro or 0 }}"
+                                    onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
+                            <td><input type="number" name="husos_{{ denier_name }}" class="input-field"
+                                    value="{{ config.husos or 0 }}"
+                                    onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td>
-                                <span id="kgh-{{ machine.id }}-{{ denier_name }}" class="metric-value" style="font-size: 1rem;">
+                                <span id="kgh-{{ machine.id }}-{{ denier_name }}" class="metric-value"
+                                    style="font-size: 1rem;">
                                     {% if config.rpm and config.torsiones_metro and config.husos %}
-                                        {{ "%.2f"|format((config.rpm / config.torsiones_metro) * 60 * (denier_name|float / 9000000) * config.husos) }}
+                                    {% set denier_val = denier_name.split(' ')[0]|float %}
+                                    {{ "%.2f"|format((config.rpm / config.torsiones_metro) * 60 * (denier_val /
+                                    9000000) * config.husos) }}
                                     {% else %}
-                                        -
+                                    -
                                     {% endif %}
                                 </span> Kg/h
                             </td>
@@ -99,11 +146,12 @@
                         {% endfor %}
                     </tbody>
                 </table>
-                <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar Configuraciones de {{ machine.id }}</button>
+                <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar
+                    Configuraciones de {{ machine.id }}</button>
             </form>
         </div>
         {% endfor %}
-        
+
         <div id="torsion-placeholder" style="text-align: center; padding: 4rem; color: #475569;">
             <i class="bi bi-arrow-up" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
             Seleccione una máquina arriba para comenzar.
@@ -114,7 +162,7 @@
     <div id="tab-rewinder" class="tab-content">
         <h3>Configuración Rewinder por Denier</h3>
         <p style="color: #94A3B8; margin-bottom: 1rem;">Mp: Máquina Parada (seg) | Tm: Tiempo Máquina (min)</p>
-        
+
         <form action="/config/rewinder/update" method="POST">
             <table class="config-table">
                 <thead>
@@ -127,27 +175,32 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"] %}
+                    {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000
+                    expo", "18000"] %}
                     {% set config = rewinder_configs.get(denier_name, {}) %}
                     <tr>
                         <td style="font-weight: 600;">{{ denier_name }}</td>
-                        <td><input type="number" step="0.1" name="mp_{{ denier_name }}" class="input-field" value="{{ config.mp_segundos or 37.0 }}"></td>
-                        <td><input type="number" step="0.1" name="tm_{{ denier_name }}" class="input-field" value="{{ config.tm_minutos or 0.0 }}"></td>
+                        <td><input type="number" step="0.1" name="mp_{{ denier_name }}" class="input-field"
+                                value="{{ config.mp_segundos or 37.0 }}"></td>
+                        <td><input type="number" step="0.1" name="tm_{{ denier_name }}" class="input-field"
+                                value="{{ config.tm_minutos or 0.0 }}"></td>
                         <td>
                             {% if config.tm_minutos and config.mp_segundos %}
-                                {{ "%.0f"|format((config.tm_minutos * 60) / config.mp_segundos) }}
+                            {{ "%.0f"|format((config.tm_minutos * 60) / config.mp_segundos) }}
                             {% else %}-{% endif %}
                         </td>
                         <td>
                             {% if config.tm_minutos %}
-                                <span style="color: var(--accent-blue); font-weight: 700;">{{ "%.1f"|format((60 / config.tm_minutos) * 0.8) }}</span>
+                            <span style="color: var(--accent-blue); font-weight: 700;">{{ "%.1f"|format((60 /
+                                config.tm_minutos) * 0.8) }}</span>
                             {% else %}-{% endif %}
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar Configuraciones Rewinder</button>
+            <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar
+                Configuraciones Rewinder</button>
         </form>
     </div>
 
@@ -164,10 +217,11 @@
                     <label>Ciclo Estándar (seg)</label>
                     <input type="number" step="0.1" name="cycle" class="input-field" value="37.0" required>
                 </div>
-                <button type="submit" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">➕ Añadir Denier</button>
+                <button type="submit" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">➕ Añadir
+                    Denier</button>
             </form>
         </div>
-        
+
         <div style="margin-top: 2rem;">
             <h4>Deniers Registrados</h4>
             <div class="grid" style="margin-top: 1rem;">
@@ -185,7 +239,7 @@
     <div id="tab-shifts" class="tab-content">
         <h3>Configuración de Turnos de Trabajo</h3>
         <p style="color: #94A3B8; margin-bottom: 2rem;">Defina las horas trabajables para los próximos 15 días.</p>
-        
+
         <form action="/config/shifts/update" method="POST">
             <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));">
                 {% for day in calendar %}
@@ -193,16 +247,17 @@
                     <div style="font-weight: 600; font-size: 0.9rem;">{{ day.weekday }}</div>
                     <div style="color: #94A3B8; font-size: 0.8rem; margin-bottom: 0.5rem;">{{ day.display_date }}</div>
                     <select name="shift_{{ day.date }}" class="input-field">
-                        <option value="0" {% if day.hours == 0 %}selected{% endif %}>0h (Cerrado)</option>
-                        <option value="8" {% if day.hours == 8 %}selected{% endif %}>8h (1 Turno)</option>
-                        <option value="12" {% if day.hours == 12 %}selected{% endif %}>12h</option>
-                        <option value="16" {% if day.hours == 16 %}selected{% endif %}>16h (2 Turnos)</option>
-                        <option value="24" {% if day.hours == 24 %}selected{% endif %}>24h (3 Turnos)</option>
+                        <option value="0" {% if day.hours==0 %}selected{% endif %}>0h (Cerrado)</option>
+                        <option value="8" {% if day.hours==8 %}selected{% endif %}>8h (1 Turno)</option>
+                        <option value="12" {% if day.hours==12 %}selected{% endif %}>12h</option>
+                        <option value="16" {% if day.hours==16 %}selected{% endif %}>16h (2 Turnos)</option>
+                        <option value="24" {% if day.hours==24 %}selected{% endif %}>24h (3 Turnos)</option>
                     </select>
                 </div>
                 {% endfor %}
             </div>
-            <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar Calendario de Turnos</button>
+            <button type="submit" class="btn btn-primary" style="margin-top: 2rem; width: 100%;">💾 Guardar Calendario
+                de Turnos</button>
         </form>
     </div>
 </div>
@@ -210,43 +265,44 @@
 
 {% block scripts %}
 <script>
-function switchTab(tabId, el) {
-    // Nav
-    document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-    el.classList.add('active');
-    
-    // Content
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById('tab-' + tabId).classList.add('active');
-}
+    function switchTab(tabId, el) {
+        // Nav
+        document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
 
-function selectMachine(machineId, el) {
-    // Buttons
-    document.querySelectorAll('.machine-btn').forEach(b => b.classList.remove('active'));
-    el.classList.add('active');
-    
-    // Panes
-    document.getElementById('torsion-placeholder').style.display = 'none';
-    document.querySelectorAll('.machine-config-pane').forEach(p => p.style.display = 'none');
-    document.getElementById('machine-config-' + machineId).style.display = 'block';
-}
-
-function calculateKgh(input, denierName, machineId) {
-    const row = input.closest('tr');
-    const rpm = parseFloat(row.querySelector('input[name^="rpm_"]').value) || 0;
-    const torsiones = parseFloat(row.querySelector('input[name^="torsiones_"]').value) || 0;
-    const husos = parseInt(row.querySelector('input[name^="husos_"]').value) || 0;
-    const denier = parseFloat(denierName);
-    
-    const display = document.getElementById(`kgh-${machineId}-${denierName}`);
-    
-    if (rpm > 0 && torsiones > 0 && husos > 0) {
-        // Formula: (RPM / T/m) * 60 * (Denier / 9,000,000) * Husos
-        const kgh = (rpm / torsiones) * 60 * (denier / 9000000) * husos;
-        display.innerText = kgh.toFixed(2);
-    } else {
-        display.innerText = '-';
+        // Content
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tabId).classList.add('active');
     }
-}
+
+    function selectMachine(machineId, el) {
+        // Buttons
+        document.querySelectorAll('.machine-btn').forEach(b => b.classList.remove('active'));
+        el.classList.add('active');
+
+        // Panes
+        document.getElementById('torsion-placeholder').style.display = 'none';
+        document.querySelectorAll('.machine-config-pane').forEach(p => p.style.display = 'none');
+        document.getElementById('machine-config-' + machineId).style.display = 'block';
+    }
+
+    function calculateKgh(input, denierName, machineId) {
+        const row = input.closest('tr');
+        const rpm = parseFloat(row.querySelector('input[name^="rpm_"]').value) || 0;
+        const torsiones = parseFloat(row.querySelector('input[name^="torsiones_"]').value) || 0;
+        const husos = parseInt(row.querySelector('input[name^="husos_"]').value) || 0;
+        // Extract numeric part (e.g., "6000 expo" -> 6000)
+        const denier = parseFloat(denierName.split(' ')[0]);
+
+        const display = document.getElementById(`kgh-${machineId}-${denierName}`);
+
+        if (rpm > 0 && torsiones > 0 && husos > 0) {
+            // Formula: (RPM / T/m) * 60 * (Denier / 9,000,000) * Husos
+            const kgh = (rpm / torsiones) * 60 * (denier / 9000000) * husos;
+            display.innerText = kgh.toFixed(2);
+        } else {
+            display.innerText = '-';
+        }
+    }
 </script>
 {% endblock %}
