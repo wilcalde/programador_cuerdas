@@ -31,18 +31,34 @@
 
 <style>
     @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+        margin-top: 2rem;
+        background: rgba(0,0,0,0.2);
+        padding: 1rem;
+        border-radius: 8px;
     }
 </style>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
 
 <script>
     let currentPlan = null;
+    let mainChart = null;
 
     async function generateSchedule() {
         document.getElementById('loading').style.display = 'block';
@@ -99,6 +115,10 @@
                         <div class="metric-value" style="font-size: 1.2rem;">${res.total_dias_programados}</div>
                     </div>
                 </div>
+                
+                <div class="chart-container">
+                    <canvas id="resourceChart"></canvas>
+                </div>
             </div>
 
             <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
@@ -131,26 +151,27 @@
                 </table>
             </div>
 
-            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario (Rewinder-First)</h2>
+            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario Detallado</h2>
             `;
 
             scenario.cronograma_diario.forEach(dia => {
                 html += `
-                <div class="card glass" style="margin-bottom: 1.5rem;">
-                    <h3 style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
-                        📅 ${dia.fecha}
+                <div class="card glass" style="margin-bottom: 2.5rem; border-bottom: 2px solid var(--accent-blue);">
+                    <h3 style="background: rgba(56, 189, 248, 0.1); padding: 0.5rem 1rem; border-radius: 4px; border-left: 4px solid var(--accent-blue); margin-bottom: 1.5rem;">
+                        📅 Día: ${dia.fecha}
                     </h3>
-                    <div style="overflow-x: auto;">
+                    
+                    <h4 style="color: var(--accent-blue); margin-bottom: 0.75rem;"><i class="bi bi-gear-wide-connected"></i> Programación de Rebobinado (Rewinder)</h4>
+                    <div style="overflow-x: auto; margin-bottom: 1.5rem;">
                         <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                            <thead>
-                                <tr style="color: var(--accent-blue); border-bottom: 1px solid var(--border-color);">
+                            <thead style="background: rgba(0,0,0,0.3);">
+                                <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
                                     <th style="padding: 0.5rem;">#</th>
                                     <th style="padding: 0.5rem;">Referencia</th>
-                                    <th style="padding: 0.5rem;">Inicio</th>
-                                    <th style="padding: 0.5rem;">Fin</th>
+                                    <th style="padding: 0.5rem;">Horario</th>
                                     <th style="padding: 0.5rem;">Puestos</th>
                                     <th style="padding: 0.5rem;">Operarios</th>
-                                    <th style="padding: 0.5rem;">Kg</th>
+                                    <th style="padding: 0.5rem;">Producción</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -161,8 +182,7 @@
                         <tr style="border-bottom: 1px solid var(--border-color);">
                             <td style="padding: 0.75rem;">${b.orden_secuencia}</td>
                             <td style="padding: 0.75rem;"><strong>${b.referencia}</strong></td>
-                            <td style="padding: 0.75rem;">${b.hora_inicio}</td>
-                            <td style="padding: 0.75rem;">${b.hora_fin}</td>
+                            <td style="padding: 0.75rem;">${b.hora_inicio} - ${b.hora_fin}</td>
                             <td style="padding: 0.75rem;">${b.puestos_utilizados}</td>
                             <td style="padding: 0.75rem;">${b.operarios_calculados}</td>
                             <td style="padding: 0.75rem;">${Math.round(b.kg_producidos)} kg</td>
@@ -174,11 +194,52 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <h4 style="color: #FACC15; margin-bottom: 0.75rem;"><i class="bi bi-supply"></i> Requerimiento de Suministro (Torcedoras T11-T16)</h4>
+                    <div style="overflow-x: auto; padding: 0.5rem; background: rgba(0,0,0,0.1); border-radius: 8px;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
+                                    <th style="padding: 0.5rem;">Máquina</th>
+                                    <th style="padding: 0.5rem;">Referencia</th>
+                                    <th style="padding: 0.5rem;">Horas Requeridas</th>
+                                    <th style="padding: 0.5rem;">Aporte Estimado (Kg)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                if (dia.requerimiento_abastecimiento && dia.requerimiento_abastecimiento.detalle_torcedoras) {
+                    dia.requerimiento_abastecimiento.detalle_torcedoras.forEach(t => {
+                        html += `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.5rem;">${t.maquina}</td>
+                                <td style="padding: 0.5rem;">Ref ${t.ref}</td>
+                                <td style="padding: 0.5rem;">${t.horas} h</td>
+                                <td style="padding: 0.5rem; color: #10B981;">+${Math.round(t.kg_aportados)} kg</td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                html += `
+                            </tbody>
+                        </table>
+                        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: #94A3B8; text-align: right;">
+                             Demanda Total del Día: <strong>${Math.round(dia.requerimiento_abastecimiento.kg_totales_demandados)} kg</strong> 
+                             | Horas de Pumping: <strong>${dia.requerimiento_abastecimiento.horas_produccion_conjunta} h</strong>
+                        </div>
+                    </div>
                 </div>
                 `;
             });
 
             document.getElementById('results').innerHTML = html;
+            
+            // Render Chart
+            if (scenario.datos_para_grafica) {
+                renderChart(scenario.datos_para_grafica);
+            }
 
         } catch (err) {
             document.getElementById('loading').style.display = 'none';
@@ -192,9 +253,65 @@
         }
     }
 
+    function renderChart(data) {
+        const ctx = document.getElementById('resourceChart').getContext('2d');
+        if (mainChart) mainChart.destroy();
+
+        mainChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [
+                    {
+                        label: 'Operarios Rewinder',
+                        data: data.dataset_operarios,
+                        borderColor: '#38BDF8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                        yAxisID: 'y',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Producción Diaria (Kg)',
+                        data: data.dataset_kg_produccion,
+                        borderColor: '#10B981',
+                        borderDash: [5, 5],
+                        yAxisID: 'y1',
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Operarios', color: '#94A3B8' },
+                        ticks: { color: '#94A3B8' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: 'Kg Producidos', color: '#10B981' },
+                        ticks: { color: '#10B981' },
+                        grid: { drawOnChartArea: false }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#94A3B8' } }
+                }
+            }
+        });
+    }
+
     async function savePlan() {
         if (!currentPlan) return;
-        
+
         try {
             const response = await fetch('/api/save_schedule', {
                 method: 'POST',
@@ -213,61 +330,80 @@
         if (!currentPlan) return;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('p', 'pt', 'a4');
-        
+
         // Header
         doc.setFontSize(18);
         doc.setTextColor(40);
-        doc.text("Plan de Producción - Ciplas", 40, 40);
-        
+        doc.text("Plan de Producción Industrial - Ciplas", 40, 40);
+
         doc.setFontSize(10);
         doc.text(`Generado: ${new Date().toLocaleString()}`, 40, 60);
-        doc.text(`Fin Total: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 40, 75);
+        doc.text(`Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 40, 75);
+        doc.text(`Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`, 40, 90);
 
         // Summary Table
         doc.setFontSize(14);
-        doc.text("Resumen por Referencia", 40, 110);
-        
+        doc.text("Resumen de Finalización por Referencia", 40, 120);
+
         const summaryData = currentPlan.tabla_finalizacion_referencias.map(r => [
             r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales) + " kg"
         ]);
-        
+
         doc.autoTable({
-            startY: 120,
+            startY: 130,
             head: [['Referencia', 'Finalización', 'Puestos Prom.', 'Kg Totales']],
             body: summaryData,
             theme: 'grid',
             headStyles: { fillColor: [56, 189, 248] }
         });
 
-        // Daily Detail
-        let currentY = doc.lastAutoTable.finalY + 30;
-        doc.setFontSize(14);
-        doc.text("Cronograma Diario Detallado", 40, currentY);
-        currentY += 10;
+        // Loop Days
+        let lastY = doc.lastAutoTable.finalY + 30;
 
-        currentPlan.cronograma_diario.forEach(dia => {
-            if (currentY > 750) { doc.addPage(); currentY = 40; }
-            
-            doc.setFontSize(11);
-            doc.setTextColor(0, 0, 0);
-            doc.text(`Fecha: ${dia.fecha}`, 40, currentY + 15);
-            
-            const rows = dia.turnos_asignados.map(t => [
-                t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos)
+        currentPlan.cronograma_diario.forEach((dia, index) => {
+            if (lastY > 700) { doc.addPage(); lastY = 40; }
+
+            doc.setFontSize(12);
+            doc.setTextColor(0, 50, 150);
+            doc.text(`CRONOGRAMA DÍA: ${dia.fecha}`, 40, lastY + 15);
+
+            // Rewinder Table
+            const rwRows = dia.turnos_asignados.map(t => [
+                t.orden_secuencia, t.referencia, `${t.hora_inicio}-${t.hora_fin}`, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos)
             ]);
-            
+
             doc.autoTable({
-                startY: currentY + 20,
-                head: [['#', 'Ref', 'Inicio', 'Fin', 'Puestos', 'Oper.', 'Kg']],
-                body: rows,
+                startY: lastY + 25,
+                head: [['#', 'Ref', 'Horario', 'Puestos', 'Oper.', 'Kg']],
+                body: rwRows,
                 theme: 'striped',
                 headStyles: { fillColor: [16, 185, 129] }
             });
+
+            lastY = doc.lastAutoTable.finalY + 20;
             
-            currentY = doc.lastAutoTable.finalY + 20;
+            // Torsion Table (Supply)
+            doc.setFontSize(10);
+            doc.setTextColor(150, 100, 0);
+            doc.text("Suministro de Torcedoras (Upstream Required)", 40, lastY + 10);
+            
+            const torRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(t => [
+                t.maquina, `Ref ${t.ref}`, t.horas + "h", Math.round(t.kg_aportados) + " kg"
+            ]);
+
+            doc.autoTable({
+                startY: lastY + 15,
+                head: [['Torcedora', 'Referencia', 'Horas', 'Aporte Aprox.']],
+                body: torRows,
+                theme: 'grid',
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [250, 204, 21] }
+            });
+
+            lastY = doc.lastAutoTable.finalY + 40;
         });
 
-        doc.save(`Plan_Produccion_${new Date().toISOString().split('T')[0]}.pdf`);
+        doc.save(`Plan_Produccion_Evolucion_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 </script>
 {% endblock %}
