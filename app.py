@@ -1,10 +1,9 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
-from db.queries import DBQueries
-from integrations.openai_ia import generate_production_schedule, get_ai_optimization_scenario
 from datetime import datetime, timedelta
 import json
 import traceback
+import sys
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "ciplas_master_cord_secret")
@@ -20,6 +19,7 @@ def check_auth():
 
 @app.route('/')
 def dashboard():
+    from db.queries import DBQueries
     db = DBQueries()
     return render_template('dashboard.html', active_page='dashboard', title='Dashboard')
 
@@ -53,6 +53,7 @@ def toggle_theme():
 
 @app.route('/backlog')
 def backlog():
+    from db.queries import DBQueries
     db = DBQueries()
     orders = db.get_orders()
     deniers = db.get_deniers()
@@ -62,6 +63,7 @@ def backlog():
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
+    from db.queries import DBQueries
     db = DBQueries()
     denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
@@ -74,6 +76,7 @@ def add_backlog():
 
 @app.route('/backlog/edit', methods=['POST'])
 def edit_backlog():
+    from db.queries import DBQueries
     db = DBQueries()
     order_id = request.form.get('order_id')
     denier_id = request.form.get('denier_id')
@@ -87,6 +90,7 @@ def edit_backlog():
 
 @app.route('/backlog/delete/<order_id>', methods=['POST'])
 def delete_backlog(order_id):
+    from db.queries import DBQueries
     db = DBQueries()
     db.delete_order(order_id)
     flash("Pedido eliminado", "success")
@@ -94,12 +98,15 @@ def delete_backlog(order_id):
 
 @app.route('/programming')
 def programming():
+    from db.queries import DBQueries
     db = DBQueries()
     sc_data = db.get_all_scheduling_data()
     return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
 
 @app.route('/api/generate_schedule', methods=['POST'])
 def api_generate_schedule():
+    from db.queries import DBQueries
+    from integrations.openai_ia import generate_production_schedule
     db = DBQueries()
     sc_data = db.get_all_scheduling_data()
     
@@ -126,6 +133,7 @@ def api_generate_schedule():
 def api_ai_chat():
     data = request.json
     user_message = data.get('message')
+    from db.queries import DBQueries
     db = DBQueries()
     orders = db.get_orders()
     
@@ -150,6 +158,8 @@ def api_ai_chat():
 
 @app.route('/api/ai_scenario', methods=['POST'])
 def api_ai_scenario():
+    from db.queries import DBQueries
+    from integrations.openai_ia import get_ai_optimization_scenario
     db = DBQueries()
     orders = db.get_orders()
     # Mocking reports for now or fetching from DB if available
@@ -166,6 +176,7 @@ def api_save_schedule():
     if not plan:
         return jsonify({"error": "No hay plan para guardar"}), 400
         
+    from db.queries import DBQueries
     db = DBQueries()
     try:
         db.save_scheduling_scenario(name, plan)
@@ -175,6 +186,7 @@ def api_save_schedule():
 
 @app.route('/config')
 def config():
+    from db.queries import DBQueries
     db = DBQueries()
     machines = db.get_machines_torsion()
     deniers = db.get_deniers()
@@ -219,6 +231,7 @@ def config():
 
 @app.route('/config/torsion/update', methods=['POST'])
 def update_torsion():
+    from db.queries import DBQueries
     db = DBQueries()
     machine_id = request.form.get('machine_id')
     # Fetch all denier configs from form
@@ -234,6 +247,7 @@ def update_torsion():
 
 @app.route('/config/rewinder/update', methods=['POST'])
 def update_rewinder():
+    from db.queries import DBQueries
     db = DBQueries()
     denier_options = ["2000", "2500", "3000", "4000", "6000", "9000", "12000", "18000"]
     for denier in denier_options:
@@ -246,6 +260,7 @@ def update_rewinder():
 
 @app.route('/config/shifts/update', methods=['POST'])
 def update_shifts():
+    from db.queries import DBQueries
     db = DBQueries()
     # Get all shift dates from form keys
     for key, value in request.form.items():
@@ -257,6 +272,7 @@ def update_shifts():
 
 @app.route('/config/denier/add', methods=['POST'])
 def add_denier():
+    from db.queries import DBQueries
     db = DBQueries()
     name = request.form.get('name')
     cycle = request.form.get('cycle', type=float)
@@ -276,24 +292,25 @@ def ai_consultancy():
 # Health check and Diagnostics
 @app.route('/health')
 def health():
-    db_status = "untested"
-    try:
-        db = DBQueries()
-        db.get_deniers()
-        db_status = "connected"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-    
-    return jsonify({
+    diagnostics = {
         "status": "online",
-        "database": db_status,
+        "python": sys.version,
+        "path": sys.path,
         "environment": {
             "SUPABASE_URL": "set" if os.environ.get("SUPABASE_URL") else "missing",
-            "SUPABASE_KEY": "set" if os.environ.get("SUPABASE_KEY") else "missing",
-            "OPENAI_API_KEY": "set" if os.environ.get("OPENAI_API_KEY") else "missing"
-        },
-        "time": datetime.now().isoformat()
-    })
+            "SUPABASE_KEY": "set" if os.environ.get("SUPABASE_KEY") else "missing"
+        }
+    }
+    try:
+        from db.queries import DBQueries
+        db = DBQueries()
+        db.get_deniers()
+        diagnostics["database"] = "connected"
+    except Exception as e:
+        diagnostics["database_error"] = str(e)
+        diagnostics["traceback"] = traceback.format_exc().split('\n')
+    
+    return jsonify(diagnostics)
 
 # Global error handler to catch and show 500 details
 @app.errorhandler(Exception)
