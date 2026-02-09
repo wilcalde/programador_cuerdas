@@ -418,22 +418,31 @@
 
             lastY = doc.lastAutoTable.finalY + 20;
 
-            // Torsion Table (Supply)
+            // Mass Balance Table
             doc.setFontSize(10);
-            doc.setTextColor(150, 100, 0);
-            doc.text("Suministro de Torcedoras (Upstream Required)", 40, lastY + 10);
+            doc.setTextColor(0, 100, 200);
+            doc.text("Balance de Masa por Referencia", 40, lastY + 10);
 
-            const torRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(t => [
-                t.maquina, t.ref, t.horas + "h", Math.round(t.kg_aportados) + " kg"
+            const balanceRows = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [
+                b.referencia, Math.round(b.kg_suministro), Math.round(b.kg_consumo), (b.balance > 0 ? '+' : '') + Math.round(b.balance) + " kg", b.status
             ]);
 
             doc.autoTable({
                 startY: lastY + 15,
-                head: [['Torcedora', 'Referencia', 'Horas', 'Aporte Aprox.']],
-                body: torRows,
+                head: [['Referencia', 'Suministro', 'Consumo', 'Balance', 'Estado']],
+                body: balanceRows,
                 theme: 'grid',
                 styles: { fontSize: 8 },
-                headStyles: { fillColor: [250, 204, 21] }
+                headStyles: { fillColor: [56, 189, 248] },
+                didParseCell: function(data) {
+                    if (data.section === 'body' && data.column.index === 4) {
+                        const status = data.cell.raw;
+                        if (status === 'OK') data.cell.styles.textColor = [16, 185, 129];
+                        else if (status === 'EXCESO') data.cell.styles.textColor = [250, 204, 21];
+                        else data.cell.styles.textColor = [239, 68, 68];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
             });
 
             lastY = doc.lastAutoTable.finalY + 40;
