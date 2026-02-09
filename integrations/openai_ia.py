@@ -153,82 +153,46 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             eligibles = get_eligible_refs()
             if not eligibles: break
             
-            # ALGORITMO DETERMINISTA DE MEZCLA DE DENIERS (Zero Ghost Kilos)
-            # Restricción: SUM(Puestos_i * Tasa_i) <= GSC (Global Supply Capacity)
-            # Objetivo: SUM(Puestos_i) = 28 (o máximo posible)
-            
+            # REGLA ORO: Siempre ocupar 28 puestos si hay backlog
             mezcla_slot = []
             
-            # Ordenar referencias por prioridad SPT (ya están en orden en eligibles)
+            # Referencia principal (A) según prioridad SPT
             ref_A = eligibles[0]
+            Tasa_A = ref_A['kgh_unitario']
             
-            # Caso 1: Si una sola referencia puede llenar los 28 puestos sin exceder GSC
-            consumo_A_solo = 28 * ref_A['kgh_unitario']
+            # Intentar primero con la más prioritaria
+            consumo_A_28 = 28 * Tasa_A
             
-            if consumo_A_solo <= total_plant_kgh:
-                # Caso simple: una sola referencia
-                puestos_A = min(28, ref_A['puestos_max_supply'])
-                mezcla_slot.append({"ref_obj": ref_A, "puestos": puestos_A})
+            if consumo_A_28 <= total_plant_kgh:
+                # Caso A: La referencia A puede correr sola en los 28 puestos sin saturar Torsión
+                mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
             else:
-                # Caso 2: Necesitamos mezclar con una referencia de menor consumo
-                # Encontrar la referencia con menor consumo (menor kgh_unitario)
-                ref_B = None
-                for candidate in eligibles[1:]:
-                    if candidate['kgh_unitario'] < ref_A['kgh_unitario']:
-                        ref_B = candidate
-                        break
+                # Caso B: Balance por Mezcla. Mezclar con una referencia más ligera (B)
+                # Buscamos la referencia disponible con la tasa más baja para maximizar capacidad de mezcla
+                eligibles_sorted_tasa = sorted(eligibles, key=lambda x: x['kgh_unitario'])
+                ref_B = eligibles_sorted_tasa[0]
                 
-                if ref_B is None and len(eligibles) > 1:
-                    # Si no hay una más ligera, usar la siguiente disponible
-                    ref_B = eligibles[1]
+                if ref_B['ref'] == ref_A['ref'] and len(eligibles) > 1:
+                    # Si la más ligera es la misma A, buscamos la siguiente más ligera
+                    ref_B = eligibles_sorted_tasa[1]
                 
-                if ref_B:
-                    # Resolver ecuación lineal: Pa + Pb = 28, (Pa * Tasa_A) + (Pb * Tasa_B) <= GSC
-                    # Pa = (GSC - 28*Tasa_B) / (Tasa_A - Tasa_B)
-                    Tasa_A = ref_A['kgh_unitario']
-                    Tasa_B = ref_B['kgh_unitario']
+                Tasa_B = ref_B['kgh_unitario']
+                
+                if Tasa_A > Tasa_B:
+                    # Resolver: Pa + Pb = 28  Y  Pa*Tasa_A + Pb*Tasa_B <= GSC
+                    # Pa <= (GSC - 28*Tasa_B) / (Tasa_A - Tasa_B)
+                    Pa_ideal = (total_plant_kgh - 28 * Tasa_B) / (Tasa_A - Tasa_B)
+                    Pa = max(0, min(27, math.floor(Pa_ideal))) # Al menos 1 puesto para B si mezclamos
+                    Pb = 28 - Pa
                     
-                    if abs(Tasa_A - Tasa_B) > 0.01:  # Evitar división por cero
-                        # Intentar llenar completamente los 28 puestos respetando GSC
-                        Pa_ideal = (total_plant_kgh - 28 * Tasa_B) / (Tasa_A - Tasa_B)
-                        
-                        # Limitar por las restricciones de suministro individual
-                        Pa = max(0, min(28, ref_A['puestos_max_supply'], math.floor(Pa_ideal)))
-                        Pb = 28 - Pa
-                        
-                        # Verificar que Pb no exceda su propio límite de suministro
-                        if Pb > ref_B['puestos_max_supply']:
-                            Pb = ref_B['puestos_max_supply']
-                            Pa = 28 - Pb
-                            # Re-verificar que Pa no exceda su límite
-                            if Pa > ref_A['puestos_max_supply']:
-                                Pa = ref_A['puestos_max_supply']
-                                Pb = min(28 - Pa, ref_B['puestos_max_supply'])
-                        
-                        # Verificación final: asegurar que no excedemos GSC
-                        consumo_total = (Pa * Tasa_A) + (Pb * Tasa_B)
-                        if consumo_total > total_plant_kgh:
-                            # Reducir proporcionalmente hasta que quepa
-                            factor = total_plant_kgh / consumo_total
-                            Pa = math.floor(Pa * factor)
-                            Pb = math.floor(Pb * factor)
-                        
-                        if Pa > 0:
-                            mezcla_slot.append({"ref_obj": ref_A, "puestos": int(Pa)})
-                        if Pb > 0:
-                            mezcla_slot.append({"ref_obj": ref_B, "puestos": int(Pb)})
-                    else:
-                        # Tasas idénticas, dividir equitativamente
-                        Pa = min(14, ref_A['puestos_max_supply'])
-                        Pb = min(14, ref_B['puestos_max_supply'])
-                        mezcla_slot.append({"ref_obj": ref_A, "puestos": Pa})
-                        mezcla_slot.append({"ref_obj": ref_B, "puestos": Pb})
+                    mezcla_slot.append({"ref_obj": ref_A, "puestos": int(Pa)})
+                    mezcla_slot.append({"ref_obj": ref_B, "puestos": int(Pb)})
                 else:
-                    # Solo hay una referencia disponible, usar lo máximo posible sin exceder GSC
-                    puestos_max_gsc = math.floor(total_plant_kgh / ref_A['kgh_unitario'])
-                    puestos_A = min(puestos_max_gsc, ref_A['puestos_max_supply'])
-                    if puestos_A > 0:
-                        mezcla_slot.append({"ref_obj": ref_A, "puestos": puestos_A})
+                    # En el raro caso que todas las tasas sean iguales y superen GSC
+                    # (Significa que la planta físicamente no puede correr 28 puestos de nada)
+                    # Aun así, por regla de "Prohibición de Ociosidad", asignamos 28.
+                    # El balance de masa posterior mostrará la "FALTA" de suministro.
+                    mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
 
             if not mezcla_slot: break
             
