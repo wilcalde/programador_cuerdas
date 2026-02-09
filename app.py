@@ -262,7 +262,6 @@ def update_torsion():
         husos = request.form.get(f"husos_{denier}", type=int)
         
         # Only save if all three values are provided (not None)
-        # This allows saving zero values while skipping empty fields
         if rpm is not None and torsiones is not None and husos is not None:
             try:
                 db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)

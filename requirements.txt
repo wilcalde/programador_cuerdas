@@ -2,4 +2,3 @@ flask
 supabase
 openai
 python-dotenv
-httpx
