@@ -79,7 +79,7 @@
             if (!response.ok || data.error) {
                 const errorMsg = data.error || `Error del servidor (${response.status})`;
                 document.getElementById('results').innerHTML = `
-                    <div class="card glass" style="border-left: 4px solid ##EF4444;">
+                    <div class="card glass" style="border-left: 4px solid #EF4444;">
                         <h3 style="color: #EF4444;">❌ Error de Programación</h3>
                         <p style="margin-top: 1rem;">${errorMsg}</p>
                         ${data.traceback ? `<pre style="font-size: 0.7rem; color: #94A3B8; margin-top: 1rem; background: rgba(0,0,0,0.3); padding: 1rem; overflow: auto;">${data.traceback.join('\n')}</pre>` : ''}
@@ -415,106 +415,170 @@
         if (!currentPlan) return;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('p', 'pt', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
 
-        // Header
-        doc.setFontSize(18);
-        doc.setTextColor(40);
-        doc.text("Plan de Producción Industrial - Ciplas", 40, 40);
+        // --- Branded Header Helper ---
+        const drawHeader = (d) => {
+            d.setFillColor(30, 41, 59);
+            d.rect(0, 0, pageWidth, 80, 'F');
+            d.setTextColor(255, 255, 255);
+            d.setFontSize(22);
+            d.setFont("helvetica", "bold");
+            d.text("CIPLAS S.A. - Plan de Producción", 40, 45);
+            d.setFontSize(10);
+            d.setFont("helvetica", "normal");
+            d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
+        };
 
-        doc.setFontSize(10);
-        doc.text(`Generado: ${new Date().toLocaleString()}`, 40, 60);
-        doc.text(`Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 40, 75);
-        doc.text(`Total Kg Planificados: ${currentPlan.resumen_global.kg_totales_plan.toLocaleString()} kg`, 40, 90);
-        doc.text(`Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`, 40, 105);
+        drawHeader(doc);
+        
+        // --- Summary Metadata ---
+        doc.setTextColor(50);
+        doc.setFontSize(11);
+        let yPos = 110;
+        
+        doc.setFont("helvetica", "bold");
+        doc.text("Resumen Ejecutivo:", 40, yPos);
+        yPos += 20;
+        
+        doc.setFont("helvetica", "normal");
+        doc.text(`\u2022 Fin Total Estimado: ${currentPlan.resumen_global.fecha_finalizacion_total}`, 50, yPos);
+        yPos += 15;
+        doc.text(`\u2022 Total Kilogramos: ${currentPlan.resumen_global.kg_totales_plan.toLocaleString()} kg`, 50, yPos);
+        yPos += 15;
+        doc.text(`\u2022 Días Programados: ${currentPlan.resumen_global.total_dias_programados}`, 50, yPos);
+        yPos += 25;
 
-        // Raw Materials Table
+        // Strategy Box
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(40, yPos - 15, pageWidth - 80, 40, 'FD');
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(9);
+        const splitStrategy = doc.splitTextToSize(`Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`, pageWidth - 100);
+        doc.text(splitStrategy, 50, yPos + 5);
+        yPos += 60;
+
+        // --- Charts Section ---
+        try {
+            const resourceCanvas = document.getElementById('resourceChart');
+            const totalsCanvas = document.getElementById('dailyTotalsChart');
+            
+            if (resourceCanvas) {
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                doc.text("Gráfica: Carga de Operarios y Producción", 40, yPos);
+                yPos += 10;
+                const imgData = resourceCanvas.toDataURL("image/png", 1.0);
+                doc.addImage(imgData, 'PNG', 40, yPos, pageWidth - 80, 180);
+                yPos += 200;
+            }
+            
+            if (totalsCanvas) {
+                if (yPos > 600) { doc.addPage(); yPos = 40; }
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                doc.text("Gráfica: Kilogramos Totales por Día", 40, yPos);
+                yPos += 10;
+                const imgData = totalsCanvas.toDataURL("image/png", 1.0);
+                doc.addImage(imgData, 'PNG', 40, yPos, pageWidth - 80, 150);
+                yPos += 170;
+            }
+        } catch (e) { console.error("PDF Charts Error:", e); }
+
+        // --- Raw Materials & Table ---
+        doc.addPage();
+        yPos = 40;
         doc.setFontSize(14);
-        doc.text("Requerimientos de Materia Prima (Extrusión)", 40, 140);
+        doc.setTextColor(30);
+        doc.text("Requerimientos de Materia Prima (Extrusión)", 40, yPos);
         
         const rawMaterialsData = [];
         currentPlan.cronograma_diario.forEach(dia => {
-            if (dia.requerimiento_abastecimiento && dia.requerimiento_abastecimiento.balance_por_referencia) {
+            if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
                 dia.requerimiento_abastecimiento.balance_por_referencia.forEach((b, idx) => {
-                    rawMaterialsData.push([
-                        idx === 0 ? dia.fecha : '',
-                        b.referencia,
-                        Math.round(b.kg_suministro).toLocaleString() + " kg"
-                    ]);
+                    rawMaterialsData.push([idx === 0 ? dia.fecha : '', b.referencia, Math.round(b.kg_suministro).toLocaleString() + " kg"]);
                 });
             }
         });
 
         doc.autoTable({
-            startY: 150,
+            startY: yPos + 10,
             head: [['Fecha', 'Referencia', 'Kg Requeridos']],
             body: rawMaterialsData,
             theme: 'grid',
-            headStyles: { fillColor: [250, 204, 21], textColor: [0, 0, 0] }
+            headStyles: { fillColor: [250, 204, 21], textColor: [0, 0, 0], fontStyle: 'bold' },
+            styles: { fontSize: 8 },
+            margin: { left: 40, right: 40 }
         });
 
-        doc.addPage();
-        let lastY = 40;
-
-        // Summary Table
+        yPos = doc.lastAutoTable.finalY + 30;
         doc.setFontSize(14);
-        doc.text("Resumen de Finalización por Referencia", 40, lastY);
-
-        const summaryData = currentPlan.tabla_finalizacion_referencias.map(r => [
-            r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"
-        ]);
+        doc.text("Resumen de Finalización por Referencia", 40, yPos);
+        const summaryData = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
 
         doc.autoTable({
-            startY: lastY + 10,
-            head: [['Referencia', 'Finalización', 'Puestos Prom.', 'Kg Totales']],
+            startY: yPos + 10,
+            head: [['Referencia', 'Finalización Estimada', 'Asignación', 'Kg Totales']],
             body: summaryData,
             theme: 'grid',
-            headStyles: { fillColor: [56, 189, 248] }
+            headStyles: { fillColor: [56, 189, 248], fontStyle: 'bold' },
+            styles: { fontSize: 8 },
+            margin: { left: 40, right: 40 }
         });
 
-        // Loop Days
-        lastY = doc.lastAutoTable.finalY + 30;
-
-        currentPlan.cronograma_diario.forEach((dia, index) => {
-            if (lastY > 700) { doc.addPage(); lastY = 40; }
-            
+        // --- Daily Details ---
+        currentPlan.cronograma_diario.forEach((dia) => {
+            doc.addPage();
+            doc.setFillColor(56, 189, 248);
+            doc.rect(40, 30, pageWidth - 80, 25, 'F');
+            doc.setTextColor(255, 255, 255);
             doc.setFontSize(12);
-            doc.setTextColor(56, 189, 248);
-            doc.text(`Día: ${dia.fecha}`, 40, lastY);
-            lastY += 20;
+            doc.text(`DETALLE DÍA: ${dia.fecha}`, 50, 47);
 
-            // Rewinder Sub-table
-            const rwData = dia.turnos_asignados.map(t => [
-                t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, t.operarios_calculados, t.kg_producidos.toLocaleString()
-            ]);
+            doc.setTextColor(30); doc.setFontSize(11);
+            doc.text("Rebobinado (Rewinder)", 40, 75);
+            const rwData = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, t.hora_inicio, t.hora_fin, t.puestos_utilizados, t.operarios_calculados, t.kg_producidos.toLocaleString()]);
             doc.autoTable({
-                startY: lastY,
-                head: [['#', 'Ref', 'Inicio', 'Fin', 'Puestos', 'Ops', 'Kg']],
+                startY: 85,
+                head: [['#', 'Referencia', 'Inicio', 'Fin', 'Puestos', 'Ops', 'Kg']],
                 body: rwData,
                 theme: 'striped',
-                margin: { left: 40 },
-                styles: { fontSize: 8 }
+                styles: { fontSize: 8 },
+                headStyles: { fillColor: [30, 41, 59] },
+                margin: { left: 40, right: 40 }
             });
 
-            lastY = doc.lastAutoTable.finalY + 15;
-
-            // Balance Sub-table
-            if (dia.requerimiento_abastecimiento && dia.requerimiento_abastecimiento.balance_por_referencia) {
-                const balData = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [
-                    b.referencia, b.kg_suministro.toLocaleString(), b.kg_consumo.toLocaleString(), b.balance.toLocaleString(), b.status
-                ]);
+            if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
+                let balY = doc.lastAutoTable.finalY + 20;
+                doc.setFontSize(11); doc.text("Balance de Masa por Referencia", 40, balY);
+                const balData = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [b.referencia, b.kg_suministro.toLocaleString(), b.kg_consumo.toLocaleString(), b.balance.toLocaleString(), b.status]);
                 doc.autoTable({
-                    startY: lastY,
-                    head: [['Referencia', 'Suministro (kg)', 'Consumo (kg)', 'Balance (kg)', 'Estado']],
+                    startY: balY + 10,
+                    head: [['Referencia', 'Suministro', 'Consumo', 'Balance', 'Estado']],
                     body: balData,
                     theme: 'grid',
-                    margin: { left: 60 },
                     styles: { fontSize: 7 },
-                    headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] }
+                    headStyles: { fillColor: [226, 232, 240], textColor: [0, 0, 0] },
+                    margin: { left: 40, right: 40 },
+                    didParseCell: function(data) {
+                        if (data.section === 'body' && data.column.index === 4) {
+                            if (data.cell.raw === 'OK') data.cell.styles.textColor = [16, 185, 129];
+                            else if (data.cell.raw === 'FALTA') data.cell.styles.textColor = [239, 68, 68];
+                        }
+                    }
                 });
-                lastY = doc.lastAutoTable.finalY + 30;
             }
         });
 
+        // --- Final Footer ---
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8); doc.setTextColor(150);
+            doc.text(`CIPLAS S.A. - Plan de Producción - Página ${i} de ${pageCount}`, pageWidth/2, pageHeight - 20, { align: 'center' });
+        }
         doc.save(`Plan_Produccion_Ciplas_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 </script>
