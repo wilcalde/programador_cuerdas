@@ -115,6 +115,16 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     def get_eligible_refs():
         return [b for b in backlog_status if b['kg_pendientes'] > 0.01]
 
+    # Calcular Techo de la Planta (Suma de capacidades máximas de T11-T16)
+    total_plant_kgh = 0
+    for m_id in ["T11", "T12", "T14", "T15", "T16"]:
+        max_m_kgh = 0
+        for denier, d_data in torsion_capacities.items():
+            for m in d_data.get('machines', []):
+                if m['machine_id'] == m_id: max_m_kgh = max(max_m_kgh, m['kgh'])
+        if max_m_kgh == 0: max_m_kgh = 50.0 
+        total_plant_kgh += max_m_kgh
+
     # Procesamiento dia a dia
     while any(b['kg_pendientes'] > 0.01 for b in backlog_status):
         fecha_str = current_time.strftime("%Y-%m-%d")
@@ -131,22 +141,32 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             eligibles = get_eligible_refs()
             if not eligibles: break
             
-            # Lógica "Llenatodo": Seleccionar mezcla de referencias para sumar 28 puestos
+            # Lógica "Llenatodo" con Techo de Planta
             mezcla_slot = []
             puestos_acumulados = 0
+            kgh_acumulado_slot = 0
             
             for b in eligibles:
                 if puestos_acumulados >= 28: break
-                espacio_libre = 28 - puestos_acumulados
-                puestos_pesta_ref = min(espacio_libre, b['puestos_max_supply'])
+                
+                espacio_fisico = 28 - puestos_acumulados
+                kgh_disponible = total_plant_kgh - kgh_acumulado_slot
+                
+                if kgh_disponible <= 0.1: break
+                
+                # Cuántos puestos caben en el suministro restante de la planta
+                max_techo_planta = math.floor(kgh_disponible / b['kgh_unitario']) if b['kgh_unitario'] > 0 else 28
+                
+                puestos_pesta_ref = min(espacio_fisico, b['puestos_max_supply'], max_techo_planta)
                 
                 if puestos_pesta_ref > 0:
                     mezcla_slot.append({"ref_obj": b, "puestos": puestos_pesta_ref})
                     puestos_acumulados += puestos_pesta_ref
+                    kgh_acumulado_slot += (puestos_pesta_ref * b['kgh_unitario'])
 
             if not mezcla_slot: break
             
-            # Calcular duración del slot (hasta que la primera ref de la mezcla se agote)
+            # Calcular duración del slot
             duracion_slot = horas_disponibles_dia
             for item in mezcla_slot:
                 b = item['ref_obj']
@@ -258,7 +278,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     dataset_ops = [d["metricas_dia"]["operarios_maximos"] for d in cronograma_final]
     dataset_kg = [round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final]
 
-    comentario = "Algoritmo Multitasking: 28 puestos ocupados mediante mezcla dinámica de deniers."
+    comentario = "Algoritmo Multitasking con Techo de Planta: Balanceo de carga Upstream/Downstream garantizado."
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         from openai import OpenAI
@@ -267,8 +287,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             ai_res = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Analista de producción. Resume la estrategia de mezcla dinámica de deniers para llenar los 28 puestos en una frase técnica muy corta."},
-                    {"role": "user", "content": f"Producción concurrente activada. Operarios max: {max(dataset_ops)}. Mezcla JIT completada."}
+                    {"role": "system", "content": "Analista de producción. Resume la estrategia de techo de planta (suministro total) en una frase técnica muy corta."},
+                    {"role": "user", "content": f"Producción limitada por techo de torsión. Operarios max: {max(dataset_ops)}. Suministro == Demanda."}
                 ],
                 max_tokens=60
             )
