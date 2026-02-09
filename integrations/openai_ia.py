@@ -42,6 +42,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     Generate a deterministic operational production schedule in Python.
     Uses a deterministic mathematical algorithm to mix deniers and ensure zero Ghost Kilograms.
     Implements Global Supply Capacity (GSC) constraint with linear equation solving.
+    Includes explicit check_balance field for mass balance verification.
     """
     
     # 1. Prepare Backlog List (Deterministic SPT order)
@@ -273,7 +274,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         cronograma_final.append(dia_entry)
         current_time += timedelta(days=1)
 
-    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla)
+    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla) + Check Balance
     kgh_lookup_fast = {} # Pre-procesar para velocidad
     for denier, d_data in torsion_capacities.items():
         for m in d_data.get('machines', []):
@@ -318,10 +319,24 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 kg_dia_torsion += kg_asig
                 h_max_torsion = max(h_max_torsion, h_asig)
         
+        
+        # Calcular consumo total del rebobinado para este día
+        consumo_total_rebobinado = sum(demanda_dia.values())
+        
+        # Verificación de balance de masa
+        diferencia = abs(kg_dia_torsion - consumo_total_rebobinado)
+        balance_perfecto = diferencia < 0.5  # Tolerancia de 0.5 kg por redondeos
+        
         dia["requerimiento_abastecimiento"] = {
             "kg_totales_demandados": round(kg_dia_torsion, 2),
             "horas_produccion_conjunta": round(h_max_torsion, 2),
-            "detalle_torcedoras": detalle_torsion
+            "detalle_torcedoras": detalle_torsion,
+            "check_balance": {
+                "suministro_total_kg": round(kg_dia_torsion, 2),
+                "consumo_total_kg": round(consumo_total_rebobinado, 2),
+                "diferencia_kg": round(diferencia, 2),
+                "balance_perfecto": balance_perfecto
+            }
         }
 
     # 6. Preparar Retorno
