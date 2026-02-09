@@ -330,7 +330,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         }
 
     # 6. Preparar Retorno
+    kg_totales_plan = sum(round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final)
+    
     tabla_finalizacion_rows = []
+
     for b in backlog_status:
         f_date = tabla_finalizacion.get(b['ref'], current_time)
         tabla_finalizacion_rows.append({
@@ -366,6 +369,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             "resumen_global": {
                 "total_dias_programados": len(cronograma_final),
                 "fecha_finalizacion_total": (current_time - timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
+                "kg_totales_plan": round(kg_totales_plan, 2),
                 "comentario_estrategia": comentario
             },
             "tabla_finalizacion_referencias": tabla_finalizacion_rows,
