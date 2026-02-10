@@ -195,7 +195,8 @@
                         </td>
                         <td id="kgh-rw-{{ denier_safe }}" style="font-weight: 600; color: var(--success);">
                             {% if config.tm_minutos %}
-                            <span style="color: var(--accent-blue); font-weight: 700;">{{ \"%.1f\"|format((60 / config.tm_minutos) * 0.8) }}</span>
+                            <span style="color: var(--accent-blue); font-weight: 700;">{{ \"%.1f\"|format((60 /
+                                config.tm_minutos) * 0.8) }}</span>
                             {% else %}-{% endif %}
                         </td>
                     </tr>
