@@ -214,7 +214,6 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
-    # Pre-calculate next 15 days for shifts
     # Pre-calculate next 30 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)

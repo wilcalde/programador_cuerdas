@@ -66,9 +66,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     # For now, we follow the order as they came or simple ascending Ref
     backlog_list.sort(key=lambda x: str(x['ref']))
 
-    # 2. Master Data Lookup
-    # Note: rewinder_capacities is already keyed by denier name from app.py
-    
     # 3. Calendar Setup
     default_start_date = datetime.now() + timedelta(days=1)
     current_time = default_start_date.replace(hour=0, minute=0, second=0, microsecond=0)

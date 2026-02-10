@@ -7,80 +7,73 @@ class DBQueries:
     def __init__(self):
         self.supabase = get_supabase_client()
 
-    # --- Denier Catalog ---
+    # --- Deniers ---
     def get_deniers(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table('deniers').select('*').order('name').execute()
+        response = self.supabase.table("deniers").select("*").execute()
         return response.data
 
-    def create_denier(self, name: str, cycle_time: float) -> Dict[str, Any]:
-        response = self.supabase.table('deniers').insert({"name": name, "cycle_time": cycle_time}).execute()
-        return response.data[0] if response.data else {}
+    def create_denier(self, name: str, cycle_time: float):
+        data = {"name": name, "cycle_time_standard": cycle_time}
+        return self.supabase.table("deniers").insert(data).execute()
 
-    # --- Machines & Production ---
+    # --- Machines Torsion ---
     def get_machines_torsion(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table('machines_torsion').select('*').order('id').execute()
+        response = self.supabase.table("machines_torsion").select("*").execute()
         return response.data
 
-    def update_machine_torsion(self, machine_id: str, rpm: int, torsions: int, husos: int) -> Dict[str, Any]:
-        response = self.supabase.table('machines_torsion').update({
-            "rpm": rpm, "torsiones": torsions, "husos": husos
-        }).eq('id', machine_id).execute()
-        return response.data[0] if response.data else {}
+    def update_machine_torsion(self, machine_id: str, rpm: int, torsions: int, husos: int):
+        data = {"rpm": rpm, "torsions_meter": torsions, "husos_activos": husos}
+        return self.supabase.table("machines_torsion").update(data).eq("id", machine_id).execute()
 
-    # --- Orders / Backlog ---
+    # --- Orders / Pedidos ---
     def get_orders(self) -> List[Dict[str, Any]]:
-        # Select orders along with their denier name
-        response = self.supabase.table('orders').select('*, deniers(name)').order('required_date').execute()
+        response = self.supabase.table("orders").select("*, deniers(name)").execute()
         return response.data
 
-    def create_order(self, denier_id: str, kg: float, required_date: str) -> Dict[str, Any]:
-        response = self.supabase.table('orders').insert({
+    def create_order(self, denier_id: str, kg: float, required_date: str):
+        data = {
             "denier_id": denier_id,
             "total_kg": kg,
-            "produced_kg": 0,
-            "required_date": required_date,
-            "status": 'backlog'
-        }).execute()
-        return response.data[0] if response.data else {}
-
-    # Update an existing order
-    def update_order(self, order_id: str, denier_id: str, kg: float, required_date: str) -> Dict[str, Any]:
-        response = self.supabase.table('orders').update({
-            "denier_id": denier_id,
-            "total_kg": kg,
+            "priority": 3, # Default priority
             "required_date": required_date
-        }).eq('id', order_id).execute()
-        return response.data[0] if response.data else {}
+        }
+        return self.supabase.table("orders").insert(data).execute()
+    
+    def update_order(self, order_id: str, denier_id: str, kg: float, required_date: str):
+        """Update an existing order"""
+        data = {
+            "denier_id": denier_id,
+            "total_kg": kg,
+            "priority": 3, # Reset to default or keep as is (3 for now)
+            "required_date": required_date
+        }
+        return self.supabase.table("orders").update(data).eq("id", order_id).execute()
+    
+    def delete_order(self, order_id: str):
+        """Delete an order by ID"""
+        return self.supabase.table("orders").delete().eq("id", order_id).execute()
 
-    # Delete an order by ID
-    def delete_order(self, order_id: str) -> Dict[str, Any]:
-        response = self.supabase.table('orders').delete().eq('id', order_id).execute()
-        return response.data
+    def update_produced_kg(self, order_id: str, produced_kg: float):
+        return self.supabase.table("orders").update({"produced_kg": produced_kg}).eq("id", order_id).execute()
 
-    def update_produced_kg(self, order_id: str, produced_kg: float) -> Dict[str, Any]:
-        response = self.supabase.table('orders').update({"produced_kg": produced_kg}).eq('id', order_id).execute()
-        return response.data[0] if response.data else {}
-
-    # --- Reports & Maintenance ---
-    def create_report(self, machine_id: str, report_type: str, description: str, impact_hours: float) -> Dict[str, Any]:
-        response = self.supabase.table('reports').insert({
+    # --- Reports ---
+    def create_report(self, machine_id: str, report_type: str, description: str, impact_hours: float):
+        data = {
             "machine_id": machine_id,
             "type": report_type,
             "description": description,
-            "impact_hours": impact_hours,
-            "timestamp": datetime.now().isoformat()
-        }).execute()
-        return response.data[0] if response.data else {}
+            "impact_hours": impact_hours
+        }
+        return self.supabase.table("reports").insert(data).execute()
 
-    # Get all machine-denier configurations with calculated Kg/h
+    # --- Machine-Denier Configurations ---
     def get_machine_denier_configs(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table('machine_denier_config').select('*').execute()
-        return response.data
-
-    # Create or update machine-denier configuration
-    def upsert_machine_denier_config(self, machine_id: str, denier: str, rpm: int, torsiones_metro: int, husos: int) -> Dict[str, Any]:
-        # Simple upsert logic using a unique constraint on (machine_id, denier) if available, 
-        # or manual delete/insert as fallback.
+        """Get all machine-denier configurations with calculated Kg/h"""
+        response = self.supabase.table("machine_denier_config").select("*").execute()
+        return response.data if response.data else []
+    
+    def upsert_machine_denier_config(self, machine_id: str, denier: str, rpm: int, torsiones_metro: int, husos: int):
+        """Create or update machine-denier configuration"""
         data = {
             "machine_id": machine_id,
             "denier": denier,
@@ -88,49 +81,49 @@ class DBQueries:
             "torsiones_metro": torsiones_metro,
             "husos": husos
         }
-        response = self.supabase.table('machine_denier_config').upsert(data, on_conflict='machine_id,denier').execute()
-        return response.data[0] if response.data else {}
-
-    # Get all denier configurations for a specific machine
+        # Use upsert to create or update
+        return self.supabase.table("machine_denier_config").upsert(data, on_conflict="machine_id,denier").execute()
+    
     def get_config_for_machine(self, machine_id: str) -> List[Dict[str, Any]]:
-        response = self.supabase.table('machine_denier_config').select('*').eq('machine_id', machine_id).execute()
-        return response.data
-
-    # Get all rewinder denier configurations
+        """Get all denier configurations for a specific machine"""
+        response = self.supabase.table("machine_denier_config").select("*").eq("machine_id", machine_id).execute()
+        return response.data if response.data else []
+    
+    # --- Rewinder-Denier Configurations ---
     def get_rewinder_denier_configs(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table('rewinder_denier_config').select('*').execute()
-        return response.data
-
-    # Create or update rewinder denier configuration
-    def upsert_rewinder_denier_config(self, denier: str, mp_segundos: float, tm_minutos: float) -> Dict[str, Any]:
+        """Get all rewinder denier configurations"""
+        response = self.supabase.table("rewinder_denier_config").select("*").execute()
+        return response.data if response.data else []
+    
+    def upsert_rewinder_denier_config(self, denier: str, mp_segundos: float, tm_minutos: float):
+        """Create or update rewinder denier configuration"""
         data = {
             "denier": denier,
             "mp_segundos": mp_segundos,
             "tm_minutos": tm_minutos
         }
-        response = self.supabase.table('rewinder_denier_config').upsert(data, on_conflict='denier').execute()
-        return response.data[0] if response.data else {}
-
-    # Get shifts for a date range
+        return self.supabase.table("rewinder_denier_config").upsert(data, on_conflict="denier").execute()
+    
+    # --- Shifts ---
     def get_shifts(self, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
-        query = self.supabase.table('shifts').select('*')
+        """Get shifts for a date range"""
+        query = self.supabase.table("shifts").select("*")
         if start_date:
-            query = query.gte('date', start_date)
+            query = query.gte("date", start_date)
         if end_date:
-            query = query.lte('date', end_date)
-        response = query.order('date').execute()
-        return response.data
+            query = query.lte("date", end_date)
+        response = query.order("date").execute()
+        return response.data if response.data else []
 
-    # Create or update a shift for a specific date
-    def upsert_shift(self, date: str, working_hours: int) -> Dict[str, Any]:
+    def upsert_shift(self, date: str, working_hours: int):
+        """Create or update a shift for a specific date"""
         data = {
             "date": date,
             "working_hours": working_hours
         }
-        response = self.supabase.table('shifts').upsert(data, on_conflict='date').execute()
-        return response.data[0] if response.data else {}
-
-    # Get all data needed for production scheduling
+        return self.supabase.table("shifts").upsert(data, on_conflict="date").execute()
+    
+    # --- Scheduling Helper ---
     def get_all_scheduling_data(self) -> Dict[str, Any]:
         """Get all data needed for production scheduling"""
         orders = self.get_orders()
@@ -204,14 +197,13 @@ class DBQueries:
             "shifts": self.get_shifts() # Fetch all defined shifts
         }
 
-    def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]) -> Dict[str, Any]:
-        response = self.supabase.table('saved_schedules').insert({
-            "name": name,
-            "plan_data": plan_data,
-            "timestamp": datetime.now().isoformat()
-        }).execute()
-        return response.data[0] if response.data else {}
+    # --- Saved Schedules ---
+    def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]):
+        data = {
+            "scenario_name": name,
+            "plan_data": plan_data
+        }
+        return self.supabase.table("scheduling_scenarios").insert(data).execute()
 
-    def get_saved_schedules(self, limit: int = 10) -> List[Dict[str, Any]]:
-        response = self.supabase.table('saved_schedules').select('*').order('timestamp', descending=True).limit(limit).execute()
-        return response.data
+    def get_saved_schedules(self, limit: int = 10):
+        return self.supabase.table("scheduling_scenarios").select("*").order("created_at", desc=True).limit(limit).execute()

@@ -2,6 +2,7 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+# Optional for local, mandatory for Vercel (provided via UI)
 if os.path.exists('.env'):
     load_dotenv()
 
