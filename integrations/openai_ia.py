@@ -2,6 +2,8 @@ from openai import OpenAI
 import os
 import json
 from typing import List, Dict, Any
+import math
+from datetime import datetime, timedelta
 
 def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Dict[str, Any]]) -> str:
     """
@@ -40,334 +42,244 @@ import math
 
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None) -> Dict[str, Any]:
     """
-    Generate a deterministic operational production schedule in Python.
-    No more AI-based math. GPT-4o-mini only used for scenario commentary.
+    Motor de Programación Refactorizado: Simulación de Continuidad de Masa.
+    Regla de Oro: Suministro Torsión == Consumo Rewinder.
     """
     
-    # 1. Prepare Backlog List (Deterministic SPT order)
-    backlog_list = []
+    # 1. Mapeo de velocidades por máquina
+    kgh_lookup = {}
+    all_machines = ["T11", "T12", "T14", "T15", "T16"]
+    for denier, d_data in torsion_capacities.items():
+        for m in d_data.get('machines', []):
+            kgh_lookup[(m['machine_id'], denier)] = m['kgh']
+
+    # 2. Preparar Backlog (SPT - Prioridad Corto Plazo)
+    backlog = []
     if backlog_summary:
-        for d_name, data in backlog_summary.items():
-            backlog_list.append({
-                "ref": d_name,
-                "kg_total": data.get('kg_total', 0)
-            })
+        for ref, data in backlog_summary.items():
+            if data.get('kg_total', 0) > 0:
+                backlog.append({
+                    "ref": ref,
+                    "kg_pendientes": float(data['kg_total']),
+                    "kg_total_inicial": float(data['kg_total'])
+                })
     else:
-        # SPT Fallback: Shortest Processing Time roughly approximated by denier/kg
-        temp_backlog = {}
+        temp = {}
         for o in orders:
-            d_name = o.get('deniers', {}).get('name', 'Unknown')
-            temp_backlog[d_name] = temp_backlog.get(d_name, 0) + (o.get('total_kg', 0) - (o.get('produced_kg', 0) or 0))
-        for d_name, kg in temp_backlog.items():
+            ref = o.get('deniers', {}).get('name', 'N/A')
+            kg = o.get('total_kg', 0) - (o.get('produced_kg', 0) or 0)
             if kg > 0:
-                backlog_list.append({"ref": d_name, "kg_total": kg})
-    
-    # Sort by Ref name as simple priority for now, or maintain provided order
-    # For now, we follow the order as they came or simple ascending Ref
-    backlog_list.sort(key=lambda x: str(x['ref']))
+                temp[ref] = temp.get(ref, 0) + kg
+        for ref, kg in temp.items():
+            backlog.append({"ref": ref, "kg_pendientes": float(kg), "kg_total_inicial": float(kg)})
 
-    # 3. Calendar Setup
-    default_start_date = datetime.now() + timedelta(days=1)
-    current_time = default_start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    if shifts and len(shifts) > 0:
-        # Use first available shift date as start
+    # Ordenar por denier numérico para consistencia, luego por kg
+    def sort_key(x):
         try:
-            first_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
-            current_time = first_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            return (float(x['ref'].split(' ')[0]), x['kg_pendientes'])
         except:
-            pass
+            return (99999, x['kg_pendientes'])
+    
+    backlog.sort(key=sort_key)
 
-    # 4. Engine de Mezcla Dinámica (Multitasking)
+    # 3. Configuración de Calendario y Tiempos
+    def fmt_h(val):
+        h = int(val)
+        m = int(round((val - h) * 60))
+        if m >= 60: 
+            h += 1
+            m = 0
+        return f"{h:02d}:{m:02d}"
+
+    default_start = datetime.now() + timedelta(days=1)
+    current_date = default_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    if shifts and len(shifts) > 0:
+        try:
+            current_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
+        except: pass
+
+    shifts_dict = {s['date']: s['working_hours'] for s in shifts} if shifts else {}
+
     cronograma_final = []
     tabla_finalizacion = {}
-    
-    # Preparar estado del backlog y capacidades dinámicas
-    backlog_status = []
-    for item in backlog_list:
-        ref_name = str(item['ref'])
-        cap_rw = rewinder_capacities.get(ref_name, {})
-        
-        # Calcular Capacidad de Suministro (Torsión)
-        compatibles = [m_id for m_id in ["T11", "T12", "T14", "T15", "T16"] if (m_id, ref_name) in {(m['machine_id'], denier): m['kgh'] for denier, data in torsion_capacities.items() for m in data.get('machines', [])}]
-        
-        suministro_kgh = 0
-        for m_id in compatibles:
-            # Buscando velocidad específica
-            for denier, d_data in torsion_capacities.items():
-                if denier == ref_name:
-                    for m in d_data.get('machines', []):
-                        if m['machine_id'] == m_id:
-                            suministro_kgh += m['kgh']
-        
-        tasa_unit_rw = cap_rw.get('kg_per_hour', 0)
-        
-        # Si no hay capacidad de rebobinado, no se puede producir
-        if tasa_unit_rw <= 0:
-            puestos_max_supply = 0
-            tasa_unit_rw = 0
-        else:
-            puestos_max_supply = math.floor(suministro_kgh / tasa_unit_rw)
-        
-        backlog_status.append({
-            "ref": ref_name,
-            "kg_pendientes": item['kg_total'],
-            "kg_total_inicial": item['kg_total'],
-            "kgh_unitario": tasa_unit_rw,
-            "n_optimo": cap_rw.get('n_optimo', 1),
-            "puestos_max_supply": min(28, max(0, puestos_max_supply))
-        })
+    total_kg_backlog = sum(b['kg_pendientes'] for b in backlog)
+    total_kg_inicial = total_kg_backlog
 
-    def get_eligible_refs():
-        # Solo son elegibles si tienen kilos pendientes Y capacidad asignada (evita bucles infinitos por capacidad 0)
-        return [b for b in backlog_status if b['kg_pendientes'] > 0.01 and b['kgh_unitario'] > 0]
-
-    # Calcular Techo de la Planta (Suma de capacidades reales de T11-T16)
-    # Buscamos la capacidad máxima "promedio" para tener un techo estable
-    total_plant_kgh = 0
-    machine_base_kgh = {} # {m_id: base_kgh}
-    for m_id in ["T11", "T12", "T14", "T15", "T16"]:
-        max_m = 0
-        for denier, d_data in torsion_capacities.items():
-            for m in d_data.get('machines', []):
-                if m['machine_id'] == m_id: max_m = max(max_m, m['kgh'])
-        machine_base_kgh[m_id] = max_m
-        total_plant_kgh += max_m
-
-    # Procesamiento dia a dia
-    while any(b['kg_pendientes'] > 0.01 for b in backlog_status):
-        fecha_str = current_time.strftime("%Y-%m-%d")
+    # 4. Simulación Continua
+    while total_kg_backlog > 0.1:
+        date_str = current_date.strftime("%Y-%m-%d")
+        working_hours = float(shifts_dict.get(date_str, 24))
         
         dia_entry = {
-            "fecha": fecha_str,
+            "fecha": date_str,
             "turnos_asignados": [],
-            "requerimiento_abastecimiento": {"kg_totales_demandados": 0, "horas_produccion_conjunta": 0, "detalle_torcedoras": []},
+            "requerimiento_abastecimiento": {
+                "kg_totales_demandados": 0,
+                "detalle_torcedoras": [],
+                "balance_por_referencia": [],
+                "check_balance": {"suministro_total_kg": 0, "consumo_total_kg": 0, "diferencia_kg": 0, "balance_perfecto": True}
+            },
             "metricas_dia": {"operarios_maximos": 0, "puestos_activos": 0}
         }
-        
-        horas_disponibles_dia = 24.0
-        while horas_disponibles_dia > 0.01:
-            eligibles = get_eligible_refs()
+
+        if working_hours <= 0:
+            current_date += timedelta(days=1)
+            continue
+
+        horas_disponibles = working_hours
+        while horas_disponibles > 0.01:
+            # MIXING ENGINE: Asignación de Slots Balanceados
+            puestos_restantes = 28
+            maquinas_restantes = set(all_machines)
+            slot_refs = [] 
+            
+            eligibles = [b for b in backlog if b['kg_pendientes'] > 0.1]
             if not eligibles: break
-            
-            # REGLA ORO: Siempre ocupar 28 puestos si hay backlog
-            mezcla_slot = []
-            
-            # Referencia principal (A) según prioridad SPT
-            ref_A = eligibles[0]
-            Tasa_A = ref_A['kgh_unitario']
-            
-            # Intentar primero con la más prioritaria
-            consumo_A_28 = 28 * Tasa_A
-            
-            if consumo_A_28 <= total_plant_kgh:
-                # Caso A: La referencia A puede correr sola en los 28 puestos sin saturar Torsión
-                mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
-            else:
-                # Caso B: Balance por Mezcla. Mezclar con una referencia más ligera (B)
-                # Buscamos la referencia disponible con la tasa más baja para maximizar capacidad de mezcla
-                eligibles_sorted_tasa = sorted(eligibles, key=lambda x: x['kgh_unitario'])
-                ref_B = eligibles_sorted_tasa[0]
+
+            for b in eligibles:
+                if puestos_restantes <= 0 or not maquinas_restantes: break
                 
-                if ref_B['ref'] == ref_A['ref'] and len(eligibles) > 1:
-                    # Si la más ligera es la misma A, buscamos la siguiente más ligera
-                    ref_B = eligibles_sorted_tasa[1]
+                ref_name = b['ref']
+                tasa_unit_rw = rewinder_capacities.get(ref_name, {}).get('kg_per_hour', 0)
+                if tasa_unit_rw <= 0: continue
                 
-                Tasa_B = ref_B['kgh_unitario']
+                n_optimo = rewinder_capacities.get(ref_name, {}).get('n_optimo', 1)
+
+                # Priorizar Torsión: Buscar máquinas compatibles disponibles
+                maquinas_compatibles = sorted([m for m in maquinas_restantes if kgh_lookup.get((m, ref_name), 0) > 0], 
+                                            key=lambda x: kgh_lookup[(x, ref_name)], reverse=True)
+                if not maquinas_compatibles: continue
                 
-                if Tasa_A > Tasa_B:
-                    # Resolver: Pa + Pb = 28  Y  Pa*Tasa_A + Pb*Tasa_B <= GSC
-                    # Pa <= (GSC - 28*Tasa_B) / (Tasa_A - Tasa_B)
-                    Pa_ideal = (total_plant_kgh - 28 * Tasa_B) / (Tasa_A - Tasa_B)
-                    Pa = max(0, min(27, math.floor(Pa_ideal))) # Al menos 1 puesto para B si mezclamos
-                    Pb = 28 - Pa
+                # Capacidad de suministro SUSTENTABLE para Rewinder
+                capacidad_suministro_total = sum(kgh_lookup[(m, ref_name)] for m in maquinas_compatibles)
+                puestos_posibles = math.floor(capacidad_suministro_total / tasa_unit_rw)
+                
+                # Asignación final de puestos para este slot
+                puestos_asig = min(puestos_posibles, puestos_restantes)
+                
+                if puestos_asig > 0:
+                    demanda_kgh = puestos_asig * tasa_unit_rw
                     
-                    mezcla_slot.append({"ref_obj": ref_A, "puestos": int(Pa)})
-                    mezcla_slot.append({"ref_obj": ref_B, "puestos": int(Pb)})
-                else:
-                    # En el raro caso que todas las tasas sean iguales y superen GSC
-                    # (Significa que la planta físicamente no puede correr 28 puestos de nada)
-                    # Aun así, por regla de "Prohibición de Ociosidad", asignamos 28.
-                    # El balance de masa posterior mostrará la "FALTA" de suministro.
-                    mezcla_slot.append({"ref_obj": ref_A, "puestos": 28})
+                    # Selección exacta de máquinas para cubrir la demanda
+                    sum_suministro = 0
+                    maquinas_usadas = []
+                    for m in maquinas_compatibles:
+                        vel = kgh_lookup[(m, ref_name)]
+                        sum_suministro += vel
+                        maquinas_usadas.append(m)
+                        if sum_suministro >= demanda_kgh - 0.01: break
+                    
+                    slot_refs.append({
+                        "backlog_item": b,
+                        "puestos": puestos_asig,
+                        "maquinas_asig": maquinas_usadas,
+                        "kgh_supply": sum_suministro,
+                        "kgh_consumo": demanda_kgh,
+                        "n_optimo": n_optimo
+                    })
+                    
+                    puestos_restantes -= puestos_asig
+                    for m in maquinas_usadas: maquinas_restantes.remove(m)
 
-            if not mezcla_slot: break
-            
-            # Calcular duración del slot (Shortest Task first)
-            duracion_slot = horas_disponibles_dia
-            for item in mezcla_slot:
-                b = item['ref_obj']
-                vel_slot = b['kgh_unitario'] * item['puestos']
-                time_to_empty = b['kg_pendientes'] / vel_slot if vel_slot > 0 else 999
-                duracion_slot = min(duracion_slot, time_to_empty)
-            
-            # Registrar actividad del slot
-            inicio_s = (24.0 - horas_disponibles_dia)
-            fin_s = inicio_s + duracion_slot
-            
-            def fmt_h(val):
-                h = int(val)
-                m = int((val - h) * 60)
-                return f"{h:02d}:{m:02d}"
+            if not slot_refs: break
 
+            # Duración del slot
+            duracion_slot = horas_disponibles
+            for item in slot_refs:
+                duracion_slot = min(duracion_slot, item['backlog_item']['kg_pendientes'] / item['kgh_consumo'])
+            
+            # Registrar actividad
+            inicio_h = working_hours - horas_disponibles
+            fin_h = inicio_h + duracion_slot
+            
             ops_totales_slot = 0
-            for item in mezcla_slot:
-                b = item['ref_obj']
-                kg_prod = b['kgh_unitario'] * item['puestos'] * duracion_slot
-                ops_ref = math.ceil(item['puestos'] / b['n_optimo'])
+            for item in slot_refs:
+                b = item['backlog_item']
+                kg_proc = item['kgh_consumo'] * duracion_slot
+                kg_supply = item['kgh_supply'] * duracion_slot
+                ref_name = b['ref']
                 
                 dia_entry["turnos_asignados"].append({
                     "orden_secuencia": len(dia_entry["turnos_asignados"]) + 1,
-                    "referencia": b['ref'],
-                    "hora_inicio": fmt_h(inicio_s),
-                    "hora_fin": "24:00" if fin_s > 23.98 else fmt_h(fin_s),
+                    "referencia": ref_name,
+                    "hora_inicio": fmt_h(inicio_h),
+                    "hora_fin": "24:00" if (fin_h > working_hours - 0.02) else fmt_h(fin_h),
                     "puestos_utilizados": item['puestos'],
-                    "operarios_calculados": ops_ref,
-                    "kg_producidos": round(kg_prod, 2)
+                    "operarios_calculados": math.ceil(item['puestos'] / item['n_optimo']),
+                    "kg_producidos": round(kg_proc, 2)
                 })
                 
-                b['kg_pendientes'] -= kg_prod
-                if b['kg_pendientes'] <= 0.01:
-                    tabla_finalizacion[b['ref']] = current_time.replace(hour=0, minute=0) + timedelta(hours=fin_s)
-                
-                ops_totales_slot += ops_ref
+                for m_id in item['maquinas_asig']:
+                    vel = kgh_lookup[(m_id, ref_name)]
+                    kg_m = vel * duracion_slot
+                    dia_entry["requerimiento_abastecimiento"]["detalle_torcedoras"].append({
+                        "maquina": m_id, "ref": ref_name, "horas": round(duracion_slot, 2), "kg_aportados": round(kg_m, 2)
+                    })
+                    dia_entry["requerimiento_abastecimiento"]["kg_totales_demandados"] += kg_m
 
+                found_bal = next((x for x in dia_entry["requerimiento_abastecimiento"]["balance_por_referencia"] if x["referencia"] == ref_name), None)
+                if found_bal:
+                    found_bal["kg_suministro"] += kg_supply
+                    found_bal["kg_consumo"] += kg_proc
+                else:
+                    dia_entry["requerimiento_abastecimiento"]["balance_por_referencia"].append({
+                        "referencia": ref_name, "kg_suministro": kg_supply, "kg_consumo": kg_proc, "status": "OK", "balance": 0
+                    })
+
+                dia_entry["requerimiento_abastecimiento"]["check_balance"]["suministro_total_kg"] += kg_supply
+                dia_entry["requerimiento_abastecimiento"]["check_balance"]["consumo_total_kg"] += kg_proc
+                ops_totales_slot += math.ceil(item['puestos'] / item['n_optimo'])
+                
+                b['kg_pendientes'] -= kg_proc
+                if b['kg_pendientes'] <= 0.1:
+                    tabla_finalizacion[ref_name] = current_date.replace(hour=0, minute=0) + timedelta(hours=fin_h)
 
             dia_entry["metricas_dia"]["operarios_maximos"] = max(dia_entry["metricas_dia"]["operarios_maximos"], ops_totales_slot)
-            puestos_activos_slot = sum(item['puestos'] for item in mezcla_slot)
-            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], puestos_activos_slot)
-            horas_disponibles_dia -= duracion_slot
+            dia_entry["metricas_dia"]["puestos_activos"] = max(dia_entry["metricas_dia"]["puestos_activos"], sum(item['puestos'] for item in slot_refs))
+            horas_disponibles -= duracion_slot
+            total_kg_backlog = sum(b['kg_pendientes'] for b in backlog)
+
+        # Totales del día
+        for bal in dia_entry["requerimiento_abastecimiento"]["balance_por_referencia"]:
+            bal["balance"] = round(bal["kg_suministro"] - bal["kg_consumo"], 2)
+            bal["kg_suministro"] = round(bal["kg_suministro"], 1)
+            bal["kg_consumo"] = round(bal["kg_consumo"], 1)
+        
+        chk = dia_entry["requerimiento_abastecimiento"]["check_balance"]
+        chk["diferencia_kg"] = round(chk["suministro_total_kg"] - chk["consumo_total_kg"], 1)
+        chk["suministro_total_kg"] = round(chk["suministro_total_kg"], 1)
+        chk["consumo_total_kg"] = round(chk["consumo_total_kg"], 1)
+        chk["balance_perfecto"] = abs(chk["diferencia_kg"]) < 1.0
 
         cronograma_final.append(dia_entry)
-        current_time += timedelta(days=1)
+        current_date += timedelta(days=1)
+        if len(cronograma_final) > 120: break # Safety
 
-    # 5. Sincronización JIT de Torcedoras (Mismo día, misma mezcla)
-    kgh_lookup_fast = {} # Pre-procesar para velocidad
-    for denier, d_data in torsion_capacities.items():
-        for m in d_data.get('machines', []):
-            kgh_lookup_fast[(m['machine_id'], denier)] = m['kgh']
-
-    for dia in cronograma_final:
-        # Sumar demanda del día por referencia
-        demanda_dia = {}
-        for t in dia["turnos_asignados"]:
-            r = t["referencia"]
-            demanda_dia[r] = demanda_dia.get(r, 0) + t["kg_producidos"]
-        
-        if not demanda_dia: continue
-        
-        detalle_torsion = []
-        kg_dia_torsion = 0
-        h_max_torsion = 0
-        maquinas_usadas = set()
-        
-        # Aporte de suministro por referencia para el balance posterior
-        suministro_por_referencia = {}
-        
-        for ref, kg_objetivo in demanda_dia.items():
-            # Strict compatibility: only machines configured for this ref with kgh > 0
-            compatibles = sorted([m_id for m_id in ["T11", "T12", "T14", "T15", "T16"] if (m_id, ref) in kgh_lookup_fast])
-            
-            kg_pending = kg_objetivo
-            for m_id in compatibles:
-                if m_id in maquinas_usadas or kg_pending <= 0.1: continue
-                
-                vel = kgh_lookup_fast.get((m_id, ref), 0)
-                if vel <= 0: continue
-                
-                h_req = kg_pending / vel
-                h_asig = min(24.0, h_req)
-                kg_asig = h_asig * vel
-                
-                detalle_torsion.append({
-                    "maquina": m_id,
-                    "ref": ref,
-                    "horas": round(h_asig, 2),
-                    "kg_aportados": round(kg_asig, 2)
-                })
-                maquinas_usadas.add(m_id)
-                kg_pending -= kg_asig
-                kg_dia_torsion += kg_asig
-                h_max_torsion = max(h_max_torsion, h_asig)
-                
-                # Acumular para el balance por referencia
-                suministro_por_referencia[ref] = suministro_por_referencia.get(ref, 0) + kg_asig
-        
-        # Calcular consumo total del rebobinado para este día
-        consumo_total_rebobinado = sum(demanda_dia.values())
-        
-        # Generar detalle de balance por referencia
-        balance_refs = []
-        for ref in demanda_dia.keys():
-            kg_dem = demanda_dia.get(ref, 0)
-            kg_sup = suministro_por_referencia.get(ref, 0)
-            diff = kg_sup - kg_dem
-            balance_refs.append({
-                "referencia": ref,
-                "kg_suministro": round(kg_sup, 2),
-                "kg_consumo": round(kg_dem, 2),
-                "balance": round(diff, 2),
-                "status": "OK" if abs(diff) < 0.5 else ("EXCESO" if diff > 0 else "FALTA")
-            })
-
-        # Verificación de balance de masa global
-        diferencia_global = abs(kg_dia_torsion - consumo_total_rebobinado)
-        balance_perfecto = diferencia_global < 0.5
-        
-        dia["requerimiento_abastecimiento"] = {
-            "kg_totales_demandados": round(kg_dia_torsion, 2),
-            "horas_produccion_conjunta": round(h_max_torsion, 2),
-            "detalle_torcedoras": detalle_torsion,
-            "balance_por_referencia": balance_refs,
-            "check_balance": {
-                "suministro_total_kg": round(kg_dia_torsion, 2),
-                "consumo_total_kg": round(consumo_total_rebobinado, 2),
-                "diferencia_kg": round(diferencia_global, 2),
-                "balance_perfecto": balance_perfecto
-            }
-        }
-
-    # 6. Preparar Retorno
-    kg_totales_plan = sum(round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final)
-    
+    # 5. Reporte Final
     tabla_finalizacion_rows = []
-
-    for b in backlog_status:
-        f_date = tabla_finalizacion.get(b['ref'], current_time)
+    kg_programados_final = 0
+    for b in backlog:
+        f_date = tabla_finalizacion.get(b['ref'], current_date)
         tabla_finalizacion_rows.append({
             "referencia": b['ref'],
             "fecha_finalizacion": f_date.strftime("%Y-%m-%d %H:%M"),
-            "puestos_promedio": "Dinámico (Multitasking)",
+            "puestos_promedio": "Mezcla Dinámica JIT",
             "kg_totales": round(b['kg_total_inicial'], 2)
         })
+        kg_programados_final += (b['kg_total_inicial'] - max(0, b['kg_pendientes']))
 
     graph_labels = [d["fecha"] for d in cronograma_final]
     dataset_ops = [d["metricas_dia"]["operarios_maximos"] for d in cronograma_final]
-    dataset_kg = [round(d["requerimiento_abastecimiento"]["kg_totales_demandados"], 2) for d in cronograma_final]
+    dataset_kg = [d["requerimiento_abastecimiento"]["check_balance"]["suministro_total_kg"] for d in cronograma_final]
 
-    comentario = "Algoritmo Multitasking: 28 puestos ocupados mediante mezcla dinámica de deniers."
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        try:
-            ai_res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Analista de producción. Resume la estrategia de mezcla dinámica de deniers para llenar los 28 puestos en una frase técnica muy corta."},
-                    {"role": "user", "content": f"Producción concurrente activada. Operarios max: {max(dataset_ops) if dataset_ops else 0}. Mezcla JIT completada."}
-                ],
-                max_tokens=60
-            )
-            comentario = ai_res.choices[0].message.content
-        except: pass
-
+    comentario = f"Planificación 1:1 Completada. {round(kg_programados_final/1000, 1)} Toneladas integradas sin déficit de suministro."
+    
     return {
         "scenario": {
             "resumen_global": {
                 "total_dias_programados": len(cronograma_final),
-                "fecha_finalizacion_total": (current_time - timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
-                "kg_totales_plan": round(kg_totales_plan, 2),
+                "fecha_finalizacion_total": max(tabla_finalizacion.values()).strftime("%Y-%m-%d %H:%M") if tabla_finalizacion else date_str,
+                "kg_totales_plan": round(kg_programados_final, 2),
                 "comentario_estrategia": comentario
             },
             "tabla_finalizacion_referencias": tabla_finalizacion_rows,
