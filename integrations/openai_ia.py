@@ -37,9 +37,6 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Di
     except Exception as e:
         return f"Error al consultar la IA: {e}"
 
-from datetime import datetime, timedelta
-import math
-
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Motor de Programación Refactorizado: Simulación de Continuidad de Masa.
@@ -60,83 +57,56 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             if data.get('kg_total', 0) > 0:
                 backlog.append({
                     "ref": ref,
-                    "kg_pendientes": float(data['kg_total']),
-                    "kg_total_inicial": float(data['kg_total'])
+                    "kg_pendientes": data['kg_total'],
+                    "kg_total_inicial": data['kg_total']
                 })
-    else:
-        temp = {}
-        for o in orders:
-            ref = o.get('deniers', {}).get('name', 'N/A')
-            kg = o.get('total_kg', 0) - (o.get('produced_kg', 0) or 0)
-            if kg > 0:
-                temp[ref] = temp.get(ref, 0) + kg
-        for ref, kg in temp.items():
-            backlog.append({"ref": ref, "kg_pendientes": float(kg), "kg_total_inicial": float(kg)})
-
-    # Ordenar por denier numérico para consistencia, luego por kg
-    def sort_key(x):
-        try:
-            return (float(x['ref'].split(' ')[0]), x['kg_pendientes'])
-        except:
-            return (99999, x['kg_pendientes'])
     
-    backlog.sort(key=sort_key)
-
-    # 3. Configuración de Calendario y Tiempos
-    def fmt_h(val):
-        h = int(val)
-        m = int(round((val - h) * 60))
-        if m >= 60: 
-            h += 1
-            m = 0
-        return f"{h:02d}:{m:02d}"
-
-    default_start = datetime.now() + timedelta(days=1)
-    current_date = default_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    if shifts and len(shifts) > 0:
+    # 3. Preparar Turnos
+    shifts_list = sorted(shifts, key=lambda x: x['date']) if shifts else []
+    current_date = datetime.now() + timedelta(days=1)
+    if shifts_list:
         try:
-            current_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
+            current_date = datetime.strptime(shifts_list[0]['date'], "%Y-%m-%d")
         except: pass
-
-    shifts_dict = {s['date']: s['working_hours'] for s in shifts} if shifts else {}
 
     cronograma_final = []
     tabla_finalizacion = {}
-    total_kg_backlog = sum(b['kg_pendientes'] for b in backlog)
-    total_kg_inicial = total_kg_backlog
+    
+    def fmt_h(h):
+        hrs = int(h)
+        mins = int((h - hrs) * 60)
+        return f"{hrs:02d}:{mins:02d}"
 
-    # 4. Simulación Continua
+    # 4. Simulación Loop (Día a Día)
+    total_kg_backlog = sum(b['kg_pendientes'] for b in backlog)
+    
     while total_kg_backlog > 0.1:
         date_str = current_date.strftime("%Y-%m-%d")
-        working_hours = float(shifts_dict.get(date_str, 24))
+        shift_data = next((s for s in shifts_list if s['date'] == date_str), None)
+        working_hours = shift_data['working_hours'] if shift_data else 24
         
         dia_entry = {
             "fecha": date_str,
+            "metricas_dia": {"puestos_activos": 0, "operarios_maximos": 0},
             "turnos_asignados": [],
             "requerimiento_abastecimiento": {
                 "kg_totales_demandados": 0,
                 "detalle_torcedoras": [],
                 "balance_por_referencia": [],
-                "check_balance": {"suministro_total_kg": 0, "consumo_total_kg": 0, "diferencia_kg": 0, "balance_perfecto": True}
-            },
-            "metricas_dia": {"operarios_maximos": 0, "puestos_activos": 0}
+                "check_balance": {"suministro_total_kg": 0, "consumo_total_kg": 0, "diferencia_kg": 0, "balance_perfecto": False}
+            }
         }
 
-        if working_hours <= 0:
-            current_date += timedelta(days=1)
-            continue
-
         horas_disponibles = working_hours
-        while horas_disponibles > 0.01:
-            # MIXING ENGINE: Asignación de Slots Balanceados
-            puestos_restantes = 28
-            maquinas_restantes = set(all_machines)
-            slot_refs = [] 
+        while horas_disponibles > 0.01 and any(b['kg_pendientes'] > 0.1 for b in backlog):
+            # Identificar mezcla óptima para este slot
+            slot_refs = []
+            puestos_restantes = total_rewinders
+            maquinas_restantes = list(all_machines)
             
-            eligibles = [b for b in backlog if b['kg_pendientes'] > 0.1]
-            if not eligibles: break
-
-            for b in eligibles:
+            # Intentar llenar los 28 puestos con mezcla dinámica
+            for b in sorted(backlog, key=lambda x: x['kg_pendientes'], reverse=True):
+                if b['kg_pendientes'] <= 0: continue
                 if puestos_restantes <= 0 or not maquinas_restantes: break
                 
                 ref_name = b['ref']
