@@ -136,7 +136,7 @@
                                     style="font-size: 1rem;">
                                     {% if config.rpm and config.torsiones_metro and config.husos %}
                                     {% set denier_val = denier_name.split(' ')[0]|float %}
-                                    {{ "%.2f"|format((config.rpm / config.torsiones_metro) * 60 * (denier_val /
+                                    {{ \"%.2f\"|format((config.rpm / config.torsiones_metro) * 60 * (denier_val /
                                     9000000) * config.husos) }}
                                     {% else %}
                                     -
@@ -183,18 +183,19 @@
                     <tr>
                         <td style="font-weight: 600;">{{ denier_name }}</td>
                         <td><input type="number" step="0.1" name="mp_{{ denier_safe }}" class="input-field"
-                                value="{{ config.mp_segundos or 37.0 }}"></td>
+                                value="{{ config.mp_segundos or 37.0 }}"
+                                onchange="calculateRewinder(this, '{{ denier_name }}')"></td>
                         <td><input type="number" step="0.1" name="tm_{{ denier_safe }}" class="input-field"
-                                value="{{ config.tm_minutos or 0.0 }}"></td>
-                        <td>
+                                value="{{ config.tm_minutos or 0.0 }}"
+                                onchange="calculateRewinder(this, '{{ denier_name }}')"></td>
+                        <td id="n-{{ denier_safe }}" style="font-weight: 600; color: var(--primary);">
                             {% if config.tm_minutos and config.mp_segundos %}
-                            {{ "%.0f"|format((config.tm_minutos * 60) / config.mp_segundos) }}
+                            {{ \"%.0f\"|format((config.tm_minutos * 60) / config.mp_segundos) }}
                             {% else %}-{% endif %}
                         </td>
-                        <td>
+                        <td id="kgh-rw-{{ denier_safe }}" style="font-weight: 600; color: var(--success);">
                             {% if config.tm_minutos %}
-                            <span style="color: var(--accent-blue); font-weight: 700;">{{ "%.1f"|format((60 /
-                                config.tm_minutos) * 0.8) }}</span>
+                            <span style="color: var(--accent-blue); font-weight: 700;">{{ \"%.1f\"|format((60 / config.tm_minutos) * 0.8) }}</span>
                             {% else %}-{% endif %}
                         </td>
                     </tr>
@@ -321,24 +322,44 @@
 
     function calculateKgh(input, denierName, machineId) {
         const row = input.closest('tr');
-        // Use safe ID format for lookup
         const denierSafe = denierName.replace(' ', '_');
 
-        const rpm = parseFloat(row.querySelector(`input[name="rpm_${denierSafe}"]`).value) || 0;
-        const torsiones = parseFloat(row.querySelector(`input[name="torsiones_${denierSafe}"]`).value) || 0;
-        const husos = parseInt(row.querySelector(`input[name="husos_${denierSafe}"]`).value) || 0;
+        const rpm = parseFloat(row.querySelector(`input[name=\"rpm_${denierSafe}\"]`).value) || 0;
+        const torsiones = parseFloat(row.querySelector(`input[name=\"torsiones_${denierSafe}\"]`).value) || 0;
+        const husos = parseInt(row.querySelector(`input[name=\"husos_${denierSafe}\"]`).value) || 0;
 
-        // Extract numeric part (e.g., "6000 expo" -> 6000)
         const denier = parseFloat(denierName.split(' ')[0]);
-
         const display = document.getElementById(`kgh-${machineId}-${denierSafe}`);
 
         if (rpm > 0 && torsiones > 0 && husos > 0) {
-            // Formula: (RPM / T/m) * 60 * (Denier / 9,000,000) * Husos
             const kgh = (rpm / torsiones) * 60 * (denier / 9000000) * husos;
             display.innerText = kgh.toFixed(2);
         } else {
             display.innerText = '-';
+        }
+    }
+
+    function calculateRewinder(input, denierName) {
+        const row = input.closest('tr');
+        const denierSafe = denierName.replace(' ', '_');
+
+        const mp = parseFloat(row.querySelector(`input[name=\"mp_${denierSafe}\"]`).value) || 0;
+        const tm = parseFloat(row.querySelector(`input[name=\"tm_${denierSafe}\"]`).value) || 0;
+        const denierNum = parseFloat(denierName.split(' ')[0]) || 0;
+
+        const displayN = document.getElementById(`n-${denierSafe}`);
+        const displayKgh = document.getElementById(`kgh-rw-${denierSafe}`);
+
+        if (mp > 0 && tm > 0) {
+            const n = (tm * 60) / mp;
+            displayN.innerText = Math.round(n);
+
+            // Formula: (3.6 / Mp) * (Denier / 9000) * 0.8
+            const kgh = (3.6 / mp) * (denierNum / 9000) * 0.8;
+            displayKgh.innerText = kgh.toFixed(2);
+        } else {
+            displayN.innerText = '-';
+            displayKgh.innerText = '-';
         }
     }
 </script>
