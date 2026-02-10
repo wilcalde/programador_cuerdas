@@ -116,22 +116,23 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000",
-                        "12000 expo", "18000"] %}
+                        {% for d in deniers %}
+                        {% set denier_name = d.name %}
+                        {% set denier_safe = denier_name.replace(' ', '_') %}
                         {% set config = machine_configs.get(machine.id, {}).get(denier_name, {}) %}
                         <tr>
                             <td style="font-weight: 600;">{{ denier_name }}</td>
-                            <td><input type="number" name="rpm_{{ denier_name }}" class="input-field"
+                            <td><input type="number" name="rpm_{{ denier_safe }}" class="input-field"
                                     value="{{ config.rpm or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
-                            <td><input type="number" name="torsiones_{{ denier_name }}" class="input-field"
+                            <td><input type="number" name="torsiones_{{ denier_safe }}" class="input-field"
                                     value="{{ config.torsiones_metro or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
-                            <td><input type="number" name="husos_{{ denier_name }}" class="input-field"
+                            <td><input type="number" name="husos_{{ denier_safe }}" class="input-field"
                                     value="{{ config.husos or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td>
-                                <span id="kgh-{{ machine.id }}-{{ denier_name }}" class="metric-value"
+                                <span id="kgh-{{ machine.id }}-{{ denier_safe }}" class="metric-value"
                                     style="font-size: 1rem;">
                                     {% if config.rpm and config.torsiones_metro and config.husos %}
                                     {% set denier_val = denier_name.split(' ')[0]|float %}
@@ -175,14 +176,15 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for denier_name in ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000
-                    expo", "18000"] %}
+                    {% for d in deniers %}
+                    {% set denier_name = d.name %}
+                    {% set denier_safe = denier_name.replace(' ', '_') %}
                     {% set config = rewinder_configs.get(denier_name, {}) %}
                     <tr>
                         <td style="font-weight: 600;">{{ denier_name }}</td>
-                        <td><input type="number" step="0.1" name="mp_{{ denier_name }}" class="input-field"
+                        <td><input type="number" step="0.1" name="mp_{{ denier_safe }}" class="input-field"
                                 value="{{ config.mp_segundos or 37.0 }}"></td>
-                        <td><input type="number" step="0.1" name="tm_{{ denier_name }}" class="input-field"
+                        <td><input type="number" step="0.1" name="tm_{{ denier_safe }}" class="input-field"
                                 value="{{ config.tm_minutos or 0.0 }}"></td>
                         <td>
                             {% if config.tm_minutos and config.mp_segundos %}
@@ -319,13 +321,17 @@
 
     function calculateKgh(input, denierName, machineId) {
         const row = input.closest('tr');
-        const rpm = parseFloat(row.querySelector('input[name^="rpm_"]').value) || 0;
-        const torsiones = parseFloat(row.querySelector('input[name^="torsiones_"]').value) || 0;
-        const husos = parseInt(row.querySelector('input[name^="husos_"]').value) || 0;
+        // Use safe ID format for lookup
+        const denierSafe = denierName.replace(' ', '_');
+
+        const rpm = parseFloat(row.querySelector(`input[name="rpm_${denierSafe}"]`).value) || 0;
+        const torsiones = parseFloat(row.querySelector(`input[name="torsiones_${denierSafe}"]`).value) || 0;
+        const husos = parseInt(row.querySelector(`input[name="husos_${denierSafe}"]`).value) || 0;
+
         // Extract numeric part (e.g., "6000 expo" -> 6000)
         const denier = parseFloat(denierName.split(' ')[0]);
 
-        const display = document.getElementById(`kgh-${machineId}-${denierName}`);
+        const display = document.getElementById(`kgh-${machineId}-${denierSafe}`);
 
         if (rpm > 0 && torsiones > 0 && husos > 0) {
             // Formula: (RPM / T/m) * 60 * (Denier / 9,000,000) * Husos

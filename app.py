@@ -214,6 +214,7 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
+    # Pre-calculate next 15 days for shifts
     # Pre-calculate next 30 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
@@ -251,23 +252,26 @@ def update_torsion():
         flash("Error: No se especificó la máquina", "error")
         return redirect(url_for('config'))
     
-    # Fetch all denier configs from form
-    denier_options = ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000 expo", "18000"]
+    # Fetch deniers from DB to iterate dynamically
+    deniers = db.get_deniers()
     updated_deniers = []
     errors = []
     
-    for denier in denier_options:
-        rpm = request.form.get(f"rpm_{denier}", type=int)
-        torsiones = request.form.get(f"torsiones_{denier}", type=int)
-        husos = request.form.get(f"husos_{denier}", type=int)
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        
+        rpm = request.form.get(f"rpm_{denier_safe}", type=int)
+        torsiones = request.form.get(f"torsiones_{denier_safe}", type=int)
+        husos = request.form.get(f"husos_{denier_safe}", type=int)
         
         # Only save if all three values are provided (not None)
         if rpm is not None and torsiones is not None and husos is not None:
             try:
-                db.upsert_machine_denier_config(machine_id, denier, rpm, torsiones, husos)
-                updated_deniers.append(denier)
+                db.upsert_machine_denier_config(machine_id, denier_name, rpm, torsiones, husos)
+                updated_deniers.append(denier_name)
             except Exception as e:
-                errors.append(f"Error guardando denier {denier}: {str(e)}")
+                errors.append(f"Error guardando denier {denier_name}: {str(e)}")
     
     # Provide detailed feedback
     if errors:
@@ -275,10 +279,7 @@ def update_torsion():
             flash(error, "error")
     
     if updated_deniers:
-        if len(updated_deniers) == len(denier_options):
-            flash(f"✓ Configuración de {machine_id} actualizada completamente", "success")
-        else:
-            flash(f"✓ Configuración de {machine_id} actualizada para deniers: {', '.join(updated_deniers)}", "success")
+        flash(f"✓ Configuración de {machine_id} actualizada para: {', '.join(updated_deniers)}", "success")
     else:
         flash(f"No se actualizó ninguna configuración para {machine_id}", "warning")
     
@@ -287,12 +288,14 @@ def update_torsion():
 @app.route('/config/rewinder/update', methods=['POST'])
 def update_rewinder():
     db = DBQueries()
-    denier_options = ["2000", "2500", "3000", "4000", "6000", "6000 expo", "9000", "12000", "12000 expo", "18000"]
-    for denier in denier_options:
-        mp = request.form.get(f"mp_{denier}", type=float)
-        tm = request.form.get(f"tm_{denier}", type=float)
+    deniers = db.get_deniers()
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        mp = request.form.get(f"mp_{denier_safe}", type=float)
+        tm = request.form.get(f"tm_{denier_safe}", type=float)
         if mp is not None and tm is not None:
-            db.upsert_rewinder_denier_config(denier, mp, tm)
+            db.upsert_rewinder_denier_config(denier_name, mp, tm)
     flash("Configuración Rewinder actualizada", "success")
     return redirect(url_for('config'))
 
