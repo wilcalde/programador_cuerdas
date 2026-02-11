@@ -360,7 +360,7 @@
 
             <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
                 <button type="submit" class="btn btn-primary" style="min-width: 200px;">
-                    <i class="bi bi-save"></i> Guardar Niveles de Seguridad
+                    <i class="bi bi-save"></i> Guardar Cambios
                 </button>
             </div>
         </form>
@@ -433,5 +433,17 @@
             displayKgh.innerText = '-';
         }
     }
+
+    // Auto-switch tab from URL parameter
+    window.addEventListener('DOMContentLoaded', (event) => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tab = urlParams.get('tab');
+        if (tab) {
+            const tabEl = document.querySelector(`.tab-item[onclick*="'${tab}'"]`);
+            if (tabEl) {
+                switchTab(tab, tabEl);
+            }
+        }
+    });
 </script>
 {% endblock %}

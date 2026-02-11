@@ -219,6 +219,90 @@ def config():
                          calendar=calendar,
                          inventarios_cabuyas=inventarios_cabuyas)
 
+@app.route('/config/torsion/update', methods=['POST'])
+def update_torsion():
+    db = DBQueries()
+    machine_id = request.form.get('machine_id')
+    if not machine_id:
+        return redirect(url_for('config'))
+
+    deniers = db.get_deniers()
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        rpm = request.form.get(f'rpm_{denier_safe}', type=int)
+        torsiones = request.form.get(f'torsiones_{denier_safe}', type=int)
+        husos = request.form.get(f'husos_{denier_safe}', type=int)
+        
+        if rpm is not None and torsiones is not None and husos is not None:
+            db.upsert_machine_denier_config(machine_id, denier_name, rpm, torsiones, husos)
+    
+    flash(f"Configuración de {machine_id} actualizada", "success")
+    return redirect(url_for('config', tab='torsion'))
+
+@app.route('/config/rewinder/update', methods=['POST'])
+def update_rewinder():
+    db = DBQueries()
+    deniers = db.get_deniers()
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        mp = request.form.get(f'mp_{denier_safe}', type=float)
+        tm = request.form.get(f'tm_{denier_safe}', type=float)
+        
+        if mp is not None and tm is not None:
+            db.upsert_rewinder_denier_config(denier_name, mp, tm)
+            
+    flash("Configuración de Rewinder actualizada", "success")
+    return redirect(url_for('config', tab='rewinder'))
+
+@app.route('/config/shifts/update', methods=['POST'])
+def update_shifts():
+    db = DBQueries()
+    for key, value in request.form.items():
+        if key.startswith('shift_'):
+            date_str = key.replace('shift_', '')
+            working_hours = int(value)
+            db.upsert_shift(date_str, working_hours)
+            
+    flash("Calendario de turnos actualizado", "success")
+    return redirect(url_for('config', tab='shifts'))
+
+@app.route('/config/denier/add', methods=['POST'])
+def add_denier():
+    db = DBQueries()
+    name = request.form.get('name')
+    cycle = request.form.get('cycle', type=float)
+    if name and cycle:
+        db.create_denier(name, cycle)
+        flash(f"Denier {name} añadido", "success")
+    return redirect(url_for('config', tab='catalog'))
+
+@app.route('/config/cabuyas/update', methods=['POST'])
+def update_cabuyas():
+    db = DBQueries()
+    try:
+        updated_count = 0
+        for key, value in request.form.items():
+            if key.startswith('sec_'):
+                codigo = key.replace('sec_', '')
+                try:
+                    security_val = float(value)
+                    db.update_cabuya_inventory_security(codigo, security_val)
+                    updated_count += 1
+                except ValueError:
+                    continue
+        
+        if updated_count > 0:
+            flash(f"Se actualizaron {updated_count} niveles de seguridad.", "success")
+        else:
+            flash("No se realizaron cambios.", "info")
+            
+    except Exception as e:
+        flash(f"Error al actualizar: {str(e)}", "error")
+        
+    return redirect(url_for('config', tab='cabuyas'))
+
 @app.route('/config/cabuyas/priority', methods=['POST'])
 def update_cabuya_priority():
     db = DBQueries()
