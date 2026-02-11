@@ -196,7 +196,7 @@ class DBQueries:
             "torsion_capacities": torsion_capacities,
             "shifts": self.get_shifts() # Fetch all defined shifts
         }
- 
+
     # --- Saved Schedules ---
     def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]):
         data = {
