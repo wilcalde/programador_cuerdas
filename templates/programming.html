@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block header_title %}📋 Programación de Producción{% endblock %}
+{% block header_title %}📅 Programación de Producción{% endblock %}
 
 {% block content %}
 <div class="card glass" style="border-left: 4px solid var(--accent-blue);">
@@ -8,7 +8,8 @@
         disponible.</p>
 </div>
 
-<div style="margin-top: 2rem; display: flex; flex-direction: column; gap: 1rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color);">
+<div
+    style="margin-top: 2rem; display: flex; flex-direction: column; gap: 1rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color);">
     <div style="display: flex; gap: 2rem; align-items: center;">
         <span style="font-weight: 600; color: #94A3B8;">Criterio de Optimización:</span>
         <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #F8FAFC;">
@@ -98,7 +99,7 @@
                     <div class="card glass" style="border-left: 4px solid #EF4444;">
                         <h3 style="color: #EF4444;">❌ Error de Programación</h3>
                         <p style="margin-top: 1rem;">${errorMsg}</p>
-                        ${data.traceback ? `<pre style="font-size: 0.7rem; color: #94A3B8; margin-top: 1rem; background: rgba(0,0,0,0.3); padding: 1rem; overflow: auto;">${data.traceback.join('\n')}</pre>` : ''}
+                        ${data.traceback ? `<pre style="font-size: 0.7rem; color: #94A3B8; margin-top: 1rem; background: rgba(0,0,0,0.3); padding: 1rem; overflow: auto;">${data.traceback.join('\\n')}</pre>` : ''}
                     </div>
                 `;
                 return;
@@ -153,6 +154,7 @@
                             <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
                                 <th style="padding: 0.75rem;">Fecha</th>
                                 <th style="padding: 0.75rem;">Referencia</th>
+                                <th style="padding: 0.75rem;">Descripción</th>
                                 <th style="padding: 0.75rem;">Cantidad Requerida</th>
                             </tr>
                         </thead>
@@ -166,6 +168,7 @@
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                 <td style="padding: 0.75rem;">${idx === 0 ? `<strong>${dia.fecha}</strong>` : ''}</td>
                                 <td style="padding: 0.75rem;">${b.referencia}</td>
+                                <td style="padding: 0.75rem; font-size: 0.85rem; color: #CBD5E1;">${b.descripcion || ''}</td>
                                 <td style="padding: 0.75rem; font-weight: 700; color: #10B981;">${Math.round(b.kg_suministro).toLocaleString()} kg</td>
                             </tr>
                         `;
@@ -185,6 +188,7 @@
                     <thead>
                         <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
                             <th style="padding: 0.75rem;">Referencia</th>
+                            <th style="padding: 0.75rem;">Descripción</th>
                             <th style="padding: 0.75rem;">Fecha de Terminación</th>
                             <th style="padding: 0.75rem;">Puestos Promedio</th>
                             <th style="padding: 0.75rem;">Total Kg</th>
@@ -197,6 +201,7 @@
                 html += `
                     <tr style="border-bottom: 1px solid var(--border-color);">
                         <td style="padding: 0.75rem;"><strong>${row.referencia}</strong></td>
+                        <td style="padding: 0.75rem; font-size: 0.85rem; color: #CBD5E1;">${row.descripcion || ''}</td>
                         <td style="padding: 0.75rem; color: #10B981;">📅 ${row.fecha_finalizacion}</td>
                         <td style="padding: 0.75rem;">${row.puestos_promedio}</td>
                         <td style="padding: 0.75rem;">${Math.round(row.kg_totales)} kg</td>
@@ -226,6 +231,7 @@
                                 <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
                                     <th style="padding: 0.5rem;">#</th>
                                     <th style="padding: 0.5rem;">Referencia</th>
+                                    <th style="padding: 0.5rem;">Descripción</th>
                                     <th style="padding: 0.5rem;">Horario</th>
                                     <th style="padding: 0.5rem;">Puestos</th>
                                     <th style="padding: 0.5rem;">Operarios</th>
@@ -240,6 +246,7 @@
                         <tr style="border-bottom: 1px solid var(--border-color);">
                             <td style="padding: 0.75rem;">${b.orden_secuencia}</td>
                             <td style="padding: 0.75rem;"><strong>${b.referencia}</strong></td>
+                            <td style="padding: 0.75rem; font-size: 0.85rem; color: #CBD5E1;">${b.descripcion || ''}</td>
                             <td style="padding: 0.75rem;">${b.hora_inicio} - ${b.hora_fin}</td>
                             <td style="padding: 0.75rem;">${b.puestos_utilizados}</td>
                             <td style="padding: 0.75rem;">${b.operarios_calculados}</td>
@@ -260,6 +267,7 @@
                                 <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
                                     <th style="padding: 0.5rem;">Máquina</th>
                                     <th style="padding: 0.5rem;">Referencia</th>
+                                    <th style="padding: 0.5rem;">Descripción</th>
                                     <th style="padding: 0.5rem;">Horas Requeridas</th>
                                     <th style="padding: 0.5rem;">Aporte Estimado (Kg)</th>
                                 </tr>
@@ -273,6 +281,7 @@
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                 <td style="padding: 0.5rem;">${t.maquina}</td>
                                 <td style="padding: 0.5rem;">${t.ref}</td>
+                                <td style="padding: 0.5rem; font-size: 0.85rem; color: #CBD5E1;">${t.descripcion || ''}</td>
                                 <td style="padding: 0.5rem;">${t.horas} h</td>
                                 <td style="padding: 0.5rem; color: #10B981;">+${Math.round(t.kg_aportados)} kg</td>
                             </tr>
@@ -295,6 +304,7 @@
                             <thead>
                                 <tr style="color: #94A3B8; border-bottom: 1px solid var(--border-color);">
                                     <th style="padding: 0.4rem;">Referencia</th>
+                                    <th style="padding: 0.4rem;">Descripción</th>
                                     <th style="padding: 0.4rem;">Suministro (kg)</th>
                                     <th style="padding: 0.4rem;">Consumo (kg)</th>
                                     <th style="padding: 0.4rem;">Balance</th>
@@ -310,6 +320,7 @@
                         html += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                 <td style="padding: 0.4rem;"><strong>${b.referencia}</strong></td>
+                                <td style="padding: 0.4rem; font-size: 0.8rem; color: #CBD5E1;">${b.descripcion || ''}</td>
                                 <td style="padding: 0.4rem;">${Math.round(b.kg_suministro)} kg</td>
                                 <td style="padding: 0.4rem;">${Math.round(b.kg_consumo)} kg</td>
                                 <td style="padding: 0.4rem; font-weight: 700;">${b.balance > 0 ? '+' : ''}${Math.round(b.balance)} kg</td>
@@ -551,14 +562,14 @@
         currentPlan.cronograma_diario.forEach(dia => {
             if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
                 dia.requerimiento_abastecimiento.balance_por_referencia.forEach((b, idx) => {
-                    rawMatRows.push([idx === 0 ? dia.fecha : '', b.referencia, Math.round(b.kg_suministro).toLocaleString() + " kg"]);
+                    rawMatRows.push([idx === 0 ? dia.fecha : '', b.referencia, b.descripcion || '', Math.round(b.kg_suministro).toLocaleString() + " kg"]);
                 });
             }
         });
 
         doc.autoTable({
             startY: yPos,
-            head: [['Fecha', 'Referencia', 'Cantidad Requerida']],
+            head: [['Fecha', 'Referencia', 'Descripción', 'Cantidad Requerida']],
             body: rawMatRows,
             theme: 'grid',
             headStyles: { fillColor: colors.yellow, textColor: [15, 23, 42], fontStyle: 'bold' },
@@ -573,10 +584,10 @@
         doc.setTextColor(...colors.blue); doc.setFontSize(14); doc.setFont("helvetica", "bold");
         doc.text("Resumen por Referencia (Terminación)", 40, yPos); yPos += 15;
 
-        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
+        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.descripcion || '', r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
         doc.autoTable({
             startY: yPos,
-            head: [['Referencia', 'Fecha Terminación', 'Asignación', 'Total Kg']],
+            head: [['Referencia', 'Descripción', 'Fecha Terminación', 'Asignación', 'Total Kg']],
             body: sumRows,
             theme: 'grid',
             headStyles: { fillColor: colors.blue, textColor: [15, 23, 42], fontStyle: 'bold' },
@@ -602,10 +613,10 @@
             // Tabla Rewinder
             doc.setTextColor(...colors.blue); doc.setFontSize(11);
             doc.text("Programación de Rebobinado (Rewinder)", 40, yPos); yPos += 10;
-            const rwRows = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, `${t.hora_inicio} - ${t.hora_fin}`, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos).toLocaleString()]);
+            const rwRows = dia.turnos_asignados.map(t => [t.orden_secuencia, t.referencia, t.descripcion || '', `${t.hora_inicio} - ${t.hora_fin}`, t.puestos_utilizados, t.operarios_calculados, Math.round(t.kg_producidos).toLocaleString()]);
             doc.autoTable({
                 startY: yPos,
-                head: [['#', 'Referencia', 'Horario', 'Puestos', 'Ops', 'Kg']],
+                head: [['#', 'Referencia', 'Descripción', 'Horario', 'Puestos', 'Ops', 'Kg']],
                 body: rwRows,
                 theme: 'striped',
                 headStyles: { fillColor: colors.card, textColor: colors.blue },
@@ -620,10 +631,10 @@
                 checkNewPage(60);
                 doc.setTextColor(...colors.yellow); doc.setFontSize(11);
                 doc.text("Suministro (Torcedoras T11-T16)", 40, yPos); yPos += 10;
-                const supRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(s => [s.maquina, s.ref, s.horas + " h", Math.round(s.kg_aportados).toLocaleString() + " kg"]);
+                const supRows = dia.requerimiento_abastecimiento.detalle_torcedoras.map(s => [s.maquina, s.ref, s.descripcion || '', s.horas + " h", Math.round(s.kg_aportados).toLocaleString() + " kg"]);
                 doc.autoTable({
                     startY: yPos,
-                    head: [['Máquina', 'Referencia', 'Horas', 'Aporte (Kg)']],
+                    head: [['Máquina', 'Referencia', 'Descripción', 'Horas', 'Aporte (Kg)']],
                     body: supRows,
                     theme: 'grid',
                     headStyles: { fillColor: colors.yellow, textColor: [15, 23, 42], fontStyle: 'bold' },
@@ -638,17 +649,17 @@
                 checkNewPage(60);
                 doc.setTextColor(...colors.blue); doc.setFontSize(11);
                 doc.text("Balance de Masa por Referencia", 40, yPos); yPos += 10;
-                const balRows = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [b.referencia, Math.round(b.kg_suministro).toLocaleString(), Math.round(b.kg_consumo).toLocaleString(), Math.round(b.balance).toLocaleString(), b.status]);
+                const balRows = dia.requerimiento_abastecimiento.balance_por_referencia.map(b => [b.referencia, b.descripcion || '', Math.round(b.kg_suministro).toLocaleString(), Math.round(b.kg_consumo).toLocaleString(), Math.round(b.balance).toLocaleString(), b.status]);
                 doc.autoTable({
                     startY: yPos,
-                    head: [['Referencia', 'Suministro', 'Consumo', 'Balance', 'Estado']],
+                    head: [['Referencia', 'Descripción', 'Suministro', 'Consumo', 'Balance', 'Estado']],
                     body: balRows,
                     theme: 'grid',
                     headStyles: { fillColor: colors.card, textColor: colors.blue, fontStyle: 'bold' },
                     styles: { fontSize: 7, fillColor: colors.dark, textColor: colors.light, lineColor: colors.border },
                     margin: { left: 40, right: 40, top: 90 },
                     didParseCell: function (data) {
-                        if (data.section === 'body' && data.column.index === 4) {
+                        if (data.section === 'body' && data.column.index === 5) {
                             if (data.cell.raw === 'OK') data.cell.styles.textColor = colors.green;
                             else if (data.cell.raw === 'FALTA') data.cell.styles.textColor = [239, 68, 68];
                         }
