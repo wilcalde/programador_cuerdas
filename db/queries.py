@@ -7,6 +7,7 @@ class DBQueries:
     def __init__(self):
         self.supabase = get_supabase_client()
 
+    # --- Deniers ---
     def get_deniers(self) -> List[Dict[str, Any]]:
         response = self.supabase.table("deniers").select("*").execute()
         return response.data
@@ -15,12 +16,14 @@ class DBQueries:
         data = {"name": name, "cycle_time_standard": cycle_time}
         return self.supabase.table("deniers").insert(data).execute()
 
+    # --- Machines Torsion ---
     def get_machines_torsion(self) -> List[Dict[str, Any]]:
         response = self.supabase.table("machines_torsion").select("*").execute()
         return response.data
 
+    # --- Orders / Pedidos ---
     def get_orders(self) -> List[Dict[str, Any]]:
-        # Simplified to avoid potential join issues, as it's not currently used in the backlog view
+        # Simplified to avoid potential join issues
         response = self.supabase.table("orders").select("*, deniers(name)").execute()
         return response.data
 
@@ -46,17 +49,7 @@ class DBQueries:
     def delete_order(self, order_id: str):
         return self.supabase.table("orders").delete().eq("id", order_id).execute()
 
-    def get_inventarios_cabuyas(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table("inventarios_cabuyas").select("*").order("codigo").execute()
-        return response.data
-    
-    def get_pending_requirements(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table("inventarios_cabuyas").select("*").lt("requerimientos", 0).order("requerimientos", desc=False).execute()
-        return response.data if response.data else []
-
-    def update_cabuya_priority(self, codigo: str, prioridad: bool):
-        return self.supabase.table("inventarios_cabuyas").update({"prioridad": prioridad}).eq("codigo", codigo).execute()
-
+    # --- Machine-Denier Configurations ---
     def get_machine_denier_configs(self) -> List[Dict[str, Any]]:
         response = self.supabase.table("machine_denier_config").select("*").execute()
         return response.data if response.data else []
@@ -71,6 +64,7 @@ class DBQueries:
         }
         return self.supabase.table("machine_denier_config").upsert(data, on_conflict="machine_id,denier").execute()
     
+    # --- Rewinder-Denier Configurations ---
     def get_rewinder_denier_configs(self) -> List[Dict[str, Any]]:
         response = self.supabase.table("rewinder_denier_config").select("*").execute()
         return response.data if response.data else []
@@ -83,6 +77,7 @@ class DBQueries:
         }
         return self.supabase.table("rewinder_denier_config").upsert(data, on_conflict="denier").execute()
     
+    # --- Shifts ---
     def get_shifts(self, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
         query = self.supabase.table("shifts").select("*")
         if start_date:
@@ -98,6 +93,74 @@ class DBQueries:
             "working_hours": working_hours
         }
         return self.supabase.table("shifts").upsert(data, on_conflict="date").execute()
+    
+    # --- Scheduling Helper ---
+    def get_all_scheduling_data(self) -> Dict[str, Any]:
+        orders = self.get_orders()
+        rewinder_configs = self.get_rewinder_denier_configs()
+        torsion_configs = self.get_machine_denier_configs()
+        
+        rewinder_dict = {}
+        for config in rewinder_configs:
+            denier = config['denier']
+            tm_min = config['tm_minutos']
+            kg_per_hour = (60 / tm_min) * 0.8 if tm_min > 0 else 0
+            n_optimo = get_n_optimo_rew(tm_min, config['mp_segundos'])
+            rewinder_dict[denier] = {
+                "kg_per_hour": round(kg_per_hour, 1),
+                "mp_segundos": config['mp_segundos'],
+                "tm_minutos": tm_min,
+                "n_optimo": n_optimo
+            }
+        
+        torsion_capacities = {}
+        backlog_deniers = {o.get('deniers', {}).get('name') for o in orders if o.get('deniers')}
+        
+        for denier_name in backlog_deniers:
+            if not denier_name: continue
+            compatible_torsion = [c for c in torsion_configs if c['denier'] == denier_name]
+            total_kgh = 0
+            machines_details = []
+            
+            for config in compatible_torsion:
+                try:
+                    denier_val = float(denier_name.split(' ')[0])
+                    kgh = get_kgh_torsion(
+                        denier=denier_val,
+                        rpm=config['rpm'],
+                        torsiones_metro=config['torsiones_metro'],
+                        husos=config['husos']
+                    )
+                    if kgh <= 0: continue
+                    total_kgh += kgh
+                    machines_details.append({"machine_id": config['machine_id'], "kgh": round(kgh, 2)})
+                except ValueError: continue
+            
+            torsion_capacities[denier_name] = {"total_kgh": round(total_kgh, 2), "machines": machines_details}
+        
+        return {
+            "orders": orders,
+            "rewinder_capacities": rewinder_dict,
+            "torsion_capacities": torsion_capacities,
+            "shifts": self.get_shifts()
+        }
+
+    # --- Saved Schedules ---
+    def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]):
+        data = {"scenario_name": name, "plan_data": plan_data}
+        return self.supabase.table("scheduling_scenarios").insert(data).execute()
+
+    # --- Inventarios Cabuyas ---
+    def get_inventarios_cabuyas(self) -> List[Dict[str, Any]]:
+        response = self.supabase.table("inventarios_cabuyas").select("*").order("codigo").execute()
+        return response.data if response.data else []
 
     def update_cabuya_inventory_security(self, codigo: str, security_value: float):
         return self.supabase.table("inventarios_cabuyas").update({"inventario_seguridad": security_value}).eq("codigo", codigo).execute()
+
+    def get_pending_requirements(self) -> List[Dict[str, Any]]:
+        response = self.supabase.table("inventarios_cabuyas").select("*").lt("requerimientos", 0).order("requerimientos", desc=False).execute()
+        return response.data if response.data else []
+
+    def update_cabuya_priority(self, codigo: str, prioridad: bool):
+        return self.supabase.table("inventarios_cabuyas").update({"prioridad": prioridad}).eq("codigo", codigo).execute()

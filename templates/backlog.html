@@ -3,6 +3,18 @@
 {% block header_title %}📋 Backlog de Pedidos{% endblock %}
 
 {% block content %}
+<!-- Resumen de Totales -->
+<div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+    <div class="card glass" style="flex: 1; text-align: center; border-bottom: 3px solid #ef4444;">
+        <p style="color: #94A3B8; margin-bottom: 0.5rem; font-size: 0.9rem;">Total Faltantes</p>
+        <h2 style="color: #ef4444; margin: 0;">{{ "{:,.2f}".format((total_pending_kg or 0)) }} kg</h2>
+    </div>
+    <div class="card glass" style="flex: 1; text-align: center; border-bottom: 3px solid var(--accent-blue);">
+        <p style="color: #94A3B8; margin-bottom: 0.5rem; font-size: 0.9rem;">Items Pendientes</p>
+        <h2 style="color: var(--accent-blue); margin: 0;">{{ pending_requirements|length }}</h2>
+    </div>
+</div>
+
 <!-- Sección de Requerimientos Pendientes -->
 <div class="card glass" style="margin-bottom: 2.5rem; border-left: 4px solid var(--accent-blue);">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -17,6 +29,7 @@
                     <th style="padding: 0.75rem;">Descripción</th>
                     <th style="padding: 0.75rem;">Faltante (KG)</th>
                     <th style="padding: 0.75rem; text-align: center;">Prioridad</th>
+                    <th style="padding: 0.75rem; text-align: center;">Acción</th>
                 </tr>
             </thead>
             <tbody>
@@ -24,19 +37,24 @@
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                     <td style="padding: 0.75rem; font-weight: 700;">{{ req.codigo }}</td>
                     <td style="padding: 0.75rem;">{{ req.descripcion }}</td>
-                    <td style="padding: 0.75rem; color: #ef4444; font-weight: 700;">{{ "{:,.2f}".format((req.requerimientos or 0)|abs) }} kg</td>
+                    <td style="padding: 0.75rem; color: #ef4444; font-weight: 700;">
+                        {{ "{:,.2f}".format((req.requerimientos or 0)|abs) }} kg
+                    </td>
                     <td style="padding: 0.75rem; text-align: center;">
-                        <input type="checkbox" 
-                               class="priority-check" 
-                               data-codigo="{{ req.codigo }}"
-                               {% if req.prioridad %}checked{% endif %}
-                               style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
+                        <input type="checkbox" class="priority-check" data-codigo="{{ req.codigo }}" 
+                               {% if req.prioridad %}checked{% endif %} style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
+                    </td>
+                    <td style="padding: 0.75rem; text-align: center;">
+                        <button class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;"
+                                onclick="fillOrderForm('{{ req.codigo }}', '{{ (req.requerimientos or 0)|abs }}')">
+                            Crear Pedido
+                        </button>
                     </td>
                 </tr>
                 {% endfor %}
                 {% if not pending_requirements %}
                 <tr>
-                    <td colspan="4" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay requerimientos pendientes de inventario.</td>
+                    <td colspan="5" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay requerimientos pendientes de inventario.</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -44,9 +62,56 @@
     </div>
 </div>
 
+<!-- Formulario Manual de Pedido -->
+<div class="card glass" style="margin-bottom: 2rem;">
+    <h3 style="color: var(--accent-blue); margin-top: 0;">➕ Añadir Nuevo Pedido</h3>
+    <form action="/backlog/add" method="POST" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; color: #94A3B8;">Código Cabuya</label>
+            <select name="cabuya_codigo" id="cabuya_codigo" class="input-glass" onchange="autoSelectDenier(this.value)">
+                <option value="">Seleccionar producto...</option>
+                {% for item in inventarios_cabuyas %}
+                <option value="{{ item.codigo }}" data-denier="{{ item.referencia_denier }}">{{ item.codigo }} - {{ item.descripcion }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; color: #94A3B8;">Denier</label>
+            <select name="denier_id" id="denier_select" class="input-glass" required>
+                {% for d in deniers %}
+                <option value="{{ d.id }}">{{ d.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; color: #94A3B8;">Kilogramos</label>
+            <input type="number" step="0.01" name="kg" id="order_kg" class="input-glass" placeholder="Ej: 3000" required>
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; color: #94A3B8;">Fecha Requerida</label>
+            <input type="date" name="required_date" class="input-glass" required>
+        </div>
+        <div style="display: flex; align-items: flex-end;">
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Guardar Pedido</button>
+        </div>
+    </form>
+</div>
+
 <style>
     .priority-check:checked {
         accent-color: var(--accent-blue);
+    }
+    .input-glass {
+        width: 100%;
+        padding: 0.75rem;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: white;
+    }
+    .input-glass:focus {
+        border-color: var(--accent-blue);
+        outline: none;
     }
 </style>
 
@@ -55,10 +120,10 @@
 {% block scripts %}
 <script>
     document.querySelectorAll('.priority-check').forEach(checkbox => {
-        checkbox.addEventListener('change', function() {
+        checkbox.addEventListener('change', function () {
             const codigo = this.getAttribute('data-codigo');
             const prioridad = this.checked;
-            
+
             fetch('/config/cabuyas/priority', {
                 method: 'POST',
                 headers: {
@@ -69,21 +134,47 @@
                     prioridad: prioridad
                 })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    console.log(`Prioridad actualizada para ${codigo}`);
-                } else {
-                    alert('Error al actualizar prioridad: ' + (data.error || 'Desconocido'));
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log(`Prioridad actualizada para ${codigo}`);
+                    } else {
+                        alert('Error al actualizar prioridad: ' + (data.error || 'Desconocido'));
+                        this.checked = !prioridad;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Fallo la conexión con el servidor');
                     this.checked = !prioridad;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Fallo la conexión con el servidor');
-                this.checked = !prioridad;
-            });
+                });
         });
     });
+
+    function fillOrderForm(codigo, kg) {
+        const cabuyaSelect = document.getElementById('cabuya_codigo');
+        cabuyaSelect.value = codigo;
+        document.getElementById('order_kg').value = kg;
+        autoSelectDenier(codigo);
+        // Scroll to form
+        cabuyaSelect.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function autoSelectDenier(codigo) {
+        const select = document.getElementById('cabuya_codigo');
+        const selectedOption = select.options[select.selectedIndex];
+        if (!selectedOption) return;
+        
+        const denierName = selectedOption.getAttribute('data-denier');
+        if (denierName) {
+            const denierSelect = document.getElementById('denier_select');
+            for (let i = 0; i < denierSelect.options.length; i++) {
+                if (denierSelect.options[i].text === denierName) {
+                    denierSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
 </script>
 {% endblock %}

@@ -59,6 +59,17 @@ def backlog():
     orders = db.get_orders()
     deniers = db.get_deniers()
     
+    # Ensure critical deniers exist in DB
+    existing_names = {d['name'] for d in deniers}
+    if "6000 expo" not in existing_names or "12000 expo" not in existing_names:
+        try:
+            for crit in ["6000 expo", "12000 expo"]:
+                if crit not in existing_names:
+                    db.create_denier(crit, 37.0)
+            # Refresh list
+            deniers = db.get_deniers()
+        except:
+            pass
     # Sort deniers numerically by name, handling suffixes like 'expo'
     def denier_sort_key(d):
         name = d.get('name', '0')
@@ -73,13 +84,133 @@ def backlog():
     pending_requirements = db.get_pending_requirements()
     inventarios_cabuyas = db.get_inventarios_cabuyas()
     
+    total_pending_kg = sum(abs(req.get('requerimientos', 0)) for req in pending_requirements)
+    
     return render_template('backlog.html', 
                          active_page='backlog', 
                          title='Backlog', 
                          orders=orders, 
                          deniers=deniers, 
                          pending_requirements=pending_requirements,
-                         inventarios_cabuyas=inventarios_cabuyas)
+                         inventarios_cabuyas=inventarios_cabuyas,
+                         total_pending_kg=total_pending_kg)
+
+@app.route('/backlog/add', methods=['POST'])
+def add_backlog():
+    db = DBQueries()
+    denier_id = request.form.get('denier_id')
+    kg = request.form.get('kg', type=float)
+    req_date = request.form.get('required_date')
+    cabuya_codigo = request.form.get('cabuya_codigo')
+    
+    if denier_id and kg and req_date:
+        db.create_order(denier_id, kg, req_date, cabuya_codigo)
+        flash(f"Pedido de {kg}kg guardado", "success")
+    return redirect(url_for('backlog'))
+
+@app.route('/backlog/edit', methods=['POST'])
+def edit_backlog():
+    db = DBQueries()
+    order_id = request.form.get('order_id')
+    denier_id = request.form.get('denier_id')
+    kg = request.form.get('kg', type=float)
+    req_date = request.form.get('required_date')
+    cabuya_codigo = request.form.get('cabuya_codigo')
+    
+    if order_id and denier_id and kg and req_date:
+        db.update_order(order_id, denier_id, kg, req_date, cabuya_codigo)
+        flash(f"Pedido #{order_id[:6]} actualizado", "success")
+    return redirect(url_for('backlog'))
+
+@app.route('/backlog/delete/<order_id>', methods=['POST'])
+def delete_backlog(order_id):
+    db = DBQueries()
+    db.delete_order(order_id)
+    flash("Pedido eliminado", "success")
+    return redirect(url_for('backlog'))
+
+@app.route('/programming')
+def programming():
+    db = DBQueries()
+    sc_data = db.get_all_scheduling_data()
+    return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
+
+@app.route('/api/generate_schedule', methods=['POST'])
+def api_generate_schedule():
+    from db.queries import DBQueries
+    from integrations.openai_ia import generate_production_schedule
+    db = DBQueries()
+    sc_data = db.get_all_scheduling_data()
+    
+    # Calculate backlog summary per denier
+    backlog_summary = {}
+    for o in sc_data['orders']:
+        d_name = o.get('deniers', {}).get('name')
+        if not d_name: continue
+        if d_name not in backlog_summary:
+            backlog_summary[d_name] = {'kg_total': 0}
+        backlog_summary[d_name]['kg_total'] += (o['total_kg'] - (o.get('produced_kg') or 0))
+
+    result = generate_production_schedule(
+        orders=sc_data['orders'],
+        rewinder_capacities=sc_data['rewinder_capacities'],
+        shifts=sc_data['shifts'],
+        torsion_capacities=sc_data['torsion_capacities'],
+        backlog_summary=backlog_summary
+    )
+    
+    return jsonify(result)
+
+@app.route('/api/ai_chat', methods=['POST'])
+def api_ai_chat():
+    data = request.json
+    user_message = data.get('message')
+    from db.queries import DBQueries
+    db = DBQueries()
+    orders = db.get_orders()
+    
+    # Simple context injection
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": f"Eres el asistente inteligente de la planta Ciplas. Tienes acceso al backlog actual: {orders}. Responde de forma profesional y técnica."},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        return jsonify({"response": response.choices[0].message.content})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/api/ai_scenario', methods=['POST'])
+def api_ai_scenario():
+    from db.queries import DBQueries
+    from integrations.openai_ia import get_ai_optimization_scenario
+    db = DBQueries()
+    orders = db.get_orders()
+    # Mocking reports for now or fetching from DB if available
+    reports = [] 
+    scenario = get_ai_optimization_scenario(orders, reports)
+    return jsonify({"response": scenario})
+
+@app.route('/api/save_schedule', methods=['POST'])
+def api_save_schedule():
+    data = request.json
+    name = data.get('name', 'Programación IA')
+    plan = data.get('plan')
+    
+    if not plan:
+        return jsonify({"error": "No hay plan para guardar"}), 400
+        
+    db = DBQueries()
+    try:
+        db.save_scheduling_scenario(name, plan)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/config')
 def config():
@@ -99,6 +230,7 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
+    # Pre-calculate next 30 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
     end_date = start_date + timedelta(days=29)
@@ -126,6 +258,83 @@ def config():
                          rewinder_configs={str(c['denier']): c for c in rewinder_configs},
                          calendar=calendar,
                          inventarios_cabuyas=inventarios_cabuyas)
+
+@app.route('/config/torsion/update', methods=['POST'])
+def update_torsion():
+    db = DBQueries()
+    machine_id = request.form.get('machine_id')
+    
+    if not machine_id:
+        flash("Error: No se especificó la máquina", "error")
+        return redirect(url_for('config'))
+    
+    # Fetch deniers from DB to iterate dynamically
+    deniers = db.get_deniers()
+    updated_deniers = []
+    errors = []
+    
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        
+        rpm = request.form.get(f"rpm_{denier_safe}", type=int)
+        torsiones = request.form.get(f"torsiones_{denier_safe}", type=int)
+        husos = request.form.get(f"husos_{denier_safe}", type=int)
+        
+        # Only save if all three values are provided (not None)
+        if rpm is not None and torsiones is not None and husos is not None:
+            try:
+                db.upsert_machine_denier_config(machine_id, denier_name, rpm, torsiones, husos)
+                updated_deniers.append(denier_name)
+            except Exception as e:
+                errors.append(f"Error guardando denier {denier_name}: {str(e)}")
+    
+    # Provide detailed feedback
+    if errors:
+        for error in errors:
+            flash(error, "error")
+    
+    if updated_deniers:
+        flash(f"✓ Configuración de {machine_id} actualizada para: {', '.join(updated_deniers)}", "success")
+    else:
+        flash(f"No se actualizó ninguna configuración para {machine_id}", "warning")
+    
+    return redirect(url_for('config'))
+
+@app.route('/config/rewinder/update', methods=['POST'])
+def update_rewinder():
+    db = DBQueries()
+    deniers = db.get_deniers()
+    for d in deniers:
+        denier_name = d['name']
+        denier_safe = denier_name.replace(' ', '_')
+        mp = request.form.get(f"mp_{denier_safe}", type=float)
+        tm = request.form.get(f"tm_{denier_safe}", type=float)
+        if mp is not None and tm is not None:
+            db.upsert_rewinder_denier_config(denier_name, mp, tm)
+    flash("Configuración Rewinder actualizada", "success")
+    return redirect(url_for('config'))
+
+@app.route('/config/shifts/update', methods=['POST'])
+def update_shifts():
+    db = DBQueries()
+    # Get all shift dates from form keys
+    for key, value in request.form.items():
+        if key.startswith('shift_'):
+            date_str = key.replace('shift_', '')
+            db.upsert_shift(date_str, int(value))
+    flash("Calendario de turnos actualizado", "success")
+    return redirect(url_for('config'))
+
+@app.route('/config/denier/add', methods=['POST'])
+def add_denier():
+    db = DBQueries()
+    name = request.form.get('name')
+    cycle = request.form.get('cycle', type=float)
+    if name and cycle:
+        db.create_denier(name, cycle)
+        flash(f"Denier {name} añadido", "success")
+    return redirect(url_for('config'))
 
 @app.route('/config/cabuyas/update', methods=['POST'])
 def update_cabuyas():
@@ -171,6 +380,10 @@ def update_cabuya_priority():
 def reports():
     return render_template('reports.html', active_page='reports', title='Reportes')
 
+@app.route('/ai')
+def ai_consultancy():
+    return render_template('ai.html', active_page='ai', title='Consultoría IA')
+
 # Global error handler
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -178,7 +391,7 @@ def handle_exception(e):
         return jsonify(error=str(e)), e.code
     
     tb = traceback.format_exc()
-    print(tb) # Will show in Vercel logs
+    print(tb)
     return jsonify({
         "error": str(e),
         "traceback": tb.split('\n')
