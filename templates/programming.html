@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block header_title %}📅 Programación de Producción{% endblock %}
+{% block header_title %}📋 Programación de Producción{% endblock %}
 
 {% block content %}
 <div class="card glass" style="border-left: 4px solid var(--accent-blue);">
@@ -8,10 +8,23 @@
         disponible.</p>
 </div>
 
-<div style="margin-top: 2rem; display: flex; gap: 1rem;">
-    <button class="btn btn-primary" onclick="generateSchedule()">
-        <i class="bi bi-arrow-repeat"></i> 🔥 Recalcular Programación con IA
-    </button>
+<div style="margin-top: 2rem; display: flex; flex-direction: column; gap: 1rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color);">
+    <div style="display: flex; gap: 2rem; align-items: center;">
+        <span style="font-weight: 600; color: #94A3B8;">Criterio de Optimización:</span>
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #F8FAFC;">
+            <input type="radio" name="strategy" value="kg" checked style="accent-color: var(--accent-blue);">
+            Maximizar Kg
+        </label>
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #F8FAFC;">
+            <input type="radio" name="strategy" value="priority" style="accent-color: var(--accent-blue);">
+            Prioridades Primero ⭐
+        </label>
+    </div>
+    <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+        <button class="btn btn-primary" onclick="generateSchedule()" style="min-width: 250px; font-weight: 700;">
+            <i class="bi bi-magic"></i> Generar programación
+        </button>
+    </div>
 </div>
 
 <div id="loading" style="display: none; margin-top: 2rem; text-align: center;">
@@ -63,6 +76,7 @@
     let dailyChart = null;
 
     async function generateSchedule() {
+        const strategy = document.querySelector('input[name="strategy"]:checked').value;
         document.getElementById('loading').style.display = 'block';
         document.getElementById('results').innerHTML = '';
 
@@ -71,7 +85,8 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                body: JSON.stringify({ strategy: strategy })
             });
             const data = await response.json();
 
@@ -330,7 +345,9 @@
             }
 
         } catch (err) {
-            // ... (omitting catch block for brevity as it remains same)
+            console.error(err);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('results').innerHTML = `<p style="color: #EF4444;">Ocurrió un error al procesar la respuesta de la IA.</p>`;
         }
     }
 
@@ -453,7 +470,7 @@
 
         const drawHeader = (d) => {
             d.setFillColor(...colors.dark);
-            d.rect(0, 0, pageWidth, pageHeight, 'F'); 
+            d.rect(0, 0, pageWidth, pageHeight, 'F');
 
             d.setFillColor(30, 41, 59);
             d.rect(0, 0, pageWidth, 80, 'F');
@@ -516,7 +533,7 @@
                 doc.addImage(resCanvas.toDataURL("image/png", 1.0), 'PNG', 40, yPos, pageWidth - 80, 180);
                 yPos += 200;
             }
-            
+
             checkNewPage(170);
             const totCanvas = document.getElementById('dailyTotalsChart');
             if (totCanvas) {
@@ -529,7 +546,7 @@
         doc.addPage(); drawHeader(doc); yPos = 110;
         doc.setTextColor(...colors.yellow); doc.setFontSize(14); doc.setFont("helvetica", "bold");
         doc.text("Requerimientos de Materia Prima (Extrusión)", 40, yPos); yPos += 15;
-        
+
         const rawMatRows = [];
         currentPlan.cronograma_diario.forEach(dia => {
             if (dia.requerimiento_abastecimiento?.balance_por_referencia) {
@@ -555,7 +572,7 @@
         checkNewPage(120);
         doc.setTextColor(...colors.blue); doc.setFontSize(14); doc.setFont("helvetica", "bold");
         doc.text("Resumen por Referencia (Terminación)", 40, yPos); yPos += 15;
-        
+
         const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.fecha_finalizacion, r.puestos_promedio, Math.round(r.kg_totales).toLocaleString() + " kg"]);
         doc.autoTable({
             startY: yPos,
