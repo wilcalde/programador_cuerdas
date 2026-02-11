@@ -396,7 +396,7 @@ def health():
 @app.errorhandler(Exception)
 def handle_exception(e):
     # Pass through HTTP errors
-    if hasattr(e, 'code') and e.code < 500:
+    if hasattr(e, 'code') and isinstance(e.code, int) and e.code < 500:
         return jsonify(error=str(e)), e.code
     
     tb = traceback.format_exc()
