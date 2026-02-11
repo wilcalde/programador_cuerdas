@@ -124,13 +124,13 @@
                         <tr>
                             <td style="font-weight: 600;">{{ denier_name }}</td>
                             <td><input type="number" name="rpm_{{ denier_safe }}" class="input-field"
-                                    value="{{ config.rpm or 0 }}"
+                                     value="{{ config.rpm or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td><input type="number" name="torsiones_{{ denier_safe }}" class="input-field"
-                                    value="{{ config.torsiones_metro or 0 }}"
+                                     value="{{ config.torsiones_metro or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td><input type="number" name="husos_{{ denier_safe }}" class="input-field"
-                                    value="{{ config.husos or 0 }}"
+                                     value="{{ config.husos or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td>
                                 <span id="kgh-{{ machine.id }}-{{ denier_safe }}" class="metric-value"
@@ -330,13 +330,13 @@
                     <tr>
                         <td style="font-weight: 700; color: var(--accent-blue);">{{ item.codigo }}</td>
                         <td><span class="badge"
-                                style="background: {% if item.estado|upper == 'AC' %}rgba(34, 197, 94, 0.1){% else %}rgba(148, 163, 184, 0.1){% endif %}; color: {% if item.estado|upper == 'AC' %}#22c55e{% else %}#94a3b8{% endif %};">{{
-                                item.estado }}</span></td>
-                        <td>{{ item.grupo }}</td>
-                        <td style="font-weight: 600;">{{ "{:,.2f}".format(item.existencia) }}</td>
+                                style="background: {% if item.estado and item.estado|upper == 'AC' %}rgba(34, 197, 94, 0.1){% else %}rgba(148, 163, 184, 0.1){% endif %}; color: {% if item.estado and item.estado|upper == 'AC' %}#22c55e{% else %}#94a3b8{% endif %};">{{
+                                item.estado or 'IN' }}</span></td>
+                        <td>{{ item.grupo or '-' }}</td>
+                        <td style="font-weight: 600;">{{ "{:,.2f}".format(item.existencia or 0) }}</td>
                         <td style="font-weight: 600; color: var(--accent-blue);">{{ item.denier or '-' }}</td>
                         <td>{{ item.color or '-' }}</td>
-                        <td style="font-size: 0.85rem; max-width: 250px;">{{ item.descripcion }}</td>
+                        <td style="font-size: 0.85rem; max-width: 250px;">{{ item.descripcion or '-' }}</td>
                         <td>
                             <input type="number" step="1" name="sec_{{ item.codigo }}" class="input-field"
                                 value="{{ item.inventario_seguridad or 0 }}"
