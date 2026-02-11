@@ -137,7 +137,7 @@
                                     style="font-size: 1rem;">
                                     {% if config.rpm and config.torsiones_metro and config.husos %}
                                     {% set denier_val = denier_name.split(' ')[0]|float %}
-                                    {{ \"%.2f\"|format((config.rpm / config.torsiones_metro) * 60 * (denier_val /
+                                    {{ "%.2f"|format((config.rpm / config.torsiones_metro) * 60 * (denier_val /
                                     9000000) * config.husos) }}
                                     {% else %}
                                     -
@@ -189,14 +189,14 @@
                         <td><input type="number" step="0.1" name="tm_{{ denier_safe }}" class="input-field"
                                 value="{{ config.tm_minutos or 0.0 }}"
                                 onchange="calculateRewinder(this, '{{ denier_name }}')"></td>
-                        <td id=\"n-{{ denier_safe }}\" style=\"font-weight: 600; color: var(--primary);\">
+                        <td id="n-{{ denier_safe }}" style="font-weight: 600; color: var(--primary);">
                             {% if config.tm_minutos and config.mp_segundos %}
-                            {{ \"%.0f\"|format((config.tm_minutos * 60) / config.mp_segundos) }}
+                            {{ "%.0f"|format((config.tm_minutos * 60) / config.mp_segundos) }}
                             {% else %}-{% endif %}
                         </td>
-                        <td id=\"kgh-rw-{{ denier_safe }}\" style=\"font-weight: 600; color: var(--success);\">
+                        <td id="kgh-rw-{{ denier_safe }}" style="font-weight: 600; color: var(--success);">
                             {% if config.tm_minutos %}
-                            <span style=\"color: var(--accent-blue); font-weight: 700;\">{{ \"%.1f\"|format((60 /
+                            <span style="color: var(--accent-blue); font-weight: 700;">{{ "%.1f"|format((60 /
                                 config.tm_minutos) * 0.8) }}</span>
                             {% else %}-{% endif %}
                         </td>
@@ -257,29 +257,29 @@
             <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem;">
                 {% for day in calendar %}
                 <div class="card glass"
-                    style=\"padding: 1rem; border: 1px solid {% if day.weekday == 'Domingo' %}rgba(239, 68, 68, 0.2){% else %}var(--border-color){% endif %}; position: relative; overflow: hidden;\">
+                    style="padding: 1rem; border: 1px solid {% if day.weekday == 'Domingo' %}rgba(239, 68, 68, 0.2){% else %}var(--border-color){% endif %}; position: relative; overflow: hidden;">
                     {% if day.weekday == 'Domingo' %}
                     <div
-                        style=\"position: absolute; top: 0; right: 0; background: rgba(239, 68, 68, 0.1); padding: 2px 8px; font-size: 0.6rem; color: #ef4444; font-weight: 700;\">
+                        style="position: absolute; top: 0; right: 0; background: rgba(239, 68, 68, 0.1); padding: 2px 8px; font-size: 0.6rem; color: #ef4444; font-weight: 700;">
                         DOM</div>
                     {% endif %}
 
                     <div
-                        style=\"font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; color: {% if day.weekday == 'Domingo' %}#ef4444{% else %}var(--accent-blue){% endif %};\">
+                        style="font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; color: {% if day.weekday == 'Domingo' %}#ef4444{% else %}var(--accent-blue){% endif %};">
                         {{ day.weekday }}
                     </div>
                     <div
-                        style=\"color: #94A3B8; font-size: 0.85rem; margin-bottom: 1rem; font-family: 'Inter', sans-serif;\">
+                        style="color: #94A3B8; font-size: 0.85rem; margin-bottom: 1rem; font-family: 'Inter', sans-serif;">
                         {{ day.display_date }}
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0;">
-                        <select name=\"shift_{{ day.date }}\" class=\"input-field\"
-                            style=\"font-size: 0.85rem; padding: 0.5rem; background: rgba(0,0,0,0.2);\">
-                            <option value=\"0\" {% if day.hours==0 %}selected{% endif %}>🚫 Cerrado (0h)</option>
-                            <option value=\"8\" {% if day.hours==8 %}selected{% endif %}>🌅 1 Turno (8h)</option>
-                            <option value=\"16\" {% if day.hours==16 %}selected{% endif %}>🏢 2 Turnos (16h)</option>
-                            <option value=\"24\" {% if day.hours==24 %}selected{% endif %}>🌕 3 Turnos (24h)</option>
+                        <select name="shift_{{ day.date }}" class="input-field"
+                            style="font-size: 0.85rem; padding: 0.5rem; background: rgba(0,0,0,0.2);">
+                            <option value="0" {% if day.hours==0 %}selected{% endif %}>🚫 Cerrado (0h)</option>
+                            <option value="8" {% if day.hours==8 %}selected{% endif %}>🌅 1 Turno (8h)</option>
+                            <option value="16" {% if day.hours==16 %}selected{% endif %}>🏢 2 Turnos (16h)</option>
+                            <option value="24" {% if day.hours==24 %}selected{% endif %}>🌕 3 Turnos (24h)</option>
                         </select>
                     </div>
                 </div>
@@ -287,10 +287,10 @@
             </div>
 
             <div
-                style=\"margin-top: 3rem; padding: 2rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;\">
-                <button type=\"submit\" class=\"btn btn-primary\"
-                    style=\"min-width: 250px; display: flex; align-items: center; justify-content: center; gap: 0.75rem;\">
-                    <i class=\"bi bi-cloud-check\" style=\"font-size: 1.2rem;\"></i>
+                style="margin-top: 3rem; padding: 2rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+                <button type="submit" class="btn btn-primary"
+                    style="min-width: 250px; display: flex; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <i class="bi bi-cloud-check" style="font-size: 1.2rem;"></i>
                     💾 Guardar Calendario de Turnos
                 </button>
             </div>
@@ -298,20 +298,20 @@
     </div>
 
     <!-- Inventarios Cabuyas Content -->
-    <div id=\"tab-cabuyas\" class=\"tab-content\">
-        <div style=\"display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;\">
+    <div id="tab-cabuyas" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
             <div>
                 <h3>Inventario de Cabuyas</h3>
-                <p style=\"color: #94A3B8;\">Resumen de existencias, deniers, colores y niveles de seguridad.</p>
+                <p style="color: #94A3B8;">Resumen de existencias, deniers, colores y niveles de seguridad.</p>
             </div>
-            <div class=\"glass\"
-                style=\"padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.8rem; color: var(--accent-blue);\">
-                <i class=\"bi bi-box-seam\"></i> {{ inventarios_cabuyas|length }} Referencias
+            <div class="glass"
+                style="padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.8rem; color: var(--accent-blue);">
+                <i class="bi bi-box-seam"></i> {{ inventarios_cabuyas|length }} Referencias
             </div>
         </div>
 
-        <form action=\"/config/cabuyas/update\" method=\"POST\">
-            <table class=\"config-table\">
+        <form action="/config/cabuyas/update" method="POST">
+            <table class="config-table">
                 <thead>
                     <tr>
                         <th>Código</th>
@@ -321,36 +321,36 @@
                         <th>Denier</th>
                         <th>Color</th>
                         <th>Descripción</th>
-                        <th style=\"width: 150px;\">Inv. Seguridad</th>
+                        <th style="width: 150px;">Inv. Seguridad</th>
                         <th>Requerimientos</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in inventarios_cabuyas %}
                     <tr>
-                        <td style=\"font-weight: 700; color: var(--accent-blue);\">{{ item.codigo }}</td>
-                        <td><span class=\"badge\"
-                                style=\"background: {% if item.estado|upper == 'AC' %}rgba(34, 197, 94, 0.1){% else %}rgba(148, 163, 184, 0.1){% endif %}; color: {% if item.estado|upper == 'AC' %}#22c55e{% else %}#94a3b8{% endif %};\">{{
+                        <td style="font-weight: 700; color: var(--accent-blue);">{{ item.codigo }}</td>
+                        <td><span class="badge"
+                                style="background: {% if item.estado|upper == 'AC' %}rgba(34, 197, 94, 0.1){% else %}rgba(148, 163, 184, 0.1){% endif %}; color: {% if item.estado|upper == 'AC' %}#22c55e{% else %}#94a3b8{% endif %};">{{
                                 item.estado }}</span></td>
                         <td>{{ item.grupo }}</td>
-                        <td style=\"font-weight: 600;\">{{ \"{:,.2f}\".format(item.existencia) }}</td>
-                        <td style=\"font-weight: 600; color: var(--accent-blue);\">{{ item.denier or '-' }}</td>
+                        <td style="font-weight: 600;">{{ "{:,.2f}".format(item.existencia) }}</td>
+                        <td style="font-weight: 600; color: var(--accent-blue);">{{ item.denier or '-' }}</td>
                         <td>{{ item.color or '-' }}</td>
-                        <td style=\"font-size: 0.85rem; max-width: 250px;\">{{ item.descripcion }}</td>
+                        <td style="font-size: 0.85rem; max-width: 250px;">{{ item.descripcion }}</td>
                         <td>
-                            <input type=\"number\" step=\"1\" name=\"sec_{{ item.codigo }}\" class=\"input-field\"
-                                value=\"{{ item.inventario_seguridad or 0 }}\"
-                                style=\"font-weight: 700; text-align: center; color: var(--accent-blue); background: rgba(0,0,0,0.1);\">
+                            <input type="number" step="1" name="sec_{{ item.codigo }}" class="input-field"
+                                value="{{ item.inventario_seguridad or 0 }}"
+                                style="font-weight: 700; text-align: center; color: var(--accent-blue); background: rgba(0,0,0,0.1);">
                         </td>
                         <td
-                            style=\"font-weight: 700; color: {% if (item.requerimientos or 0) < 0 %}#ef4444{% else %}var(--success){% endif %};\">
-                            {{ \"{:,.2f}\".format(item.requerimientos or 0) }}
+                            style="font-weight: 700; color: {% if (item.requerimientos or 0) < 0 %}#ef4444{% else %}var(--success){% endif %};">
+                            {{ "{:,.2f}".format(item.requerimientos or 0) }}
                         </td>
                     </tr>
                     {% endfor %}
                     {% if not inventarios_cabuyas %}
                     <tr>
-                        <td colspan=\"9\" style=\"text-align: center; padding: 4rem; color: #94A3B8;\">
+                        <td colspan="9" style="text-align: center; padding: 4rem; color: #94A3B8;">
                             No hay datos de inventario disponibles.
                         </td>
                     </tr>
@@ -358,9 +358,9 @@
                 </tbody>
             </table>
 
-            <div style=\"margin-top: 2rem; display: flex; justify-content: flex-end;\">
-                <button type=\"submit\" class=\"btn btn-primary\" style=\"min-width: 200px;\">
-                    <i class=\"bi bi-save\"></i> Guardar Niveles de Seguridad
+            <div style="margin-top: 2rem; display: flex; justify-content: flex-end;">
+                <button type="submit" class="btn btn-primary" style="min-width: 200px;">
+                    <i class="bi bi-save"></i> Guardar Niveles de Seguridad
                 </button>
             </div>
         </form>
@@ -395,9 +395,9 @@
         const row = input.closest('tr');
         const denierSafe = denierName.replace(' ', '_');
 
-        const rpm = parseFloat(row.querySelector(`input[name=\"rpm_${denierSafe}\"]`).value) || 0;
-        const torsiones = parseFloat(row.querySelector(`input[name=\"torsiones_${denierSafe}\"]`).value) || 0;
-        const husos = parseInt(row.querySelector(`input[name=\"husos_${denierSafe}\"]`).value) || 0;
+        const rpm = parseFloat(row.querySelector(`input[name="rpm_${denierSafe}"]`).value) || 0;
+        const torsiones = parseFloat(row.querySelector(`input[name="torsiones_${denierSafe}"]`).value) || 0;
+        const husos = parseInt(row.querySelector(`input[name="husos_${denierSafe}"]`).value) || 0;
 
         const denier = parseFloat(denierName.split(' ')[0]);
         const display = document.getElementById(`kgh-${machineId}-${denierSafe}`);
@@ -414,8 +414,8 @@
         const row = input.closest('tr');
         const denierSafe = denierName.replace(' ', '_');
 
-        const mp = parseFloat(row.querySelector(`input[name=\"mp_${denierSafe}\"]`).value) || 0;
-        const tm = parseFloat(row.querySelector(`input[name=\"tm_${denierSafe}\"]`).value) || 0;
+        const mp = parseFloat(row.querySelector(`input[name="mp_${denierSafe}"]`).value) || 0;
+        const tm = parseFloat(row.querySelector(`input[name="tm_${denierSafe}"]`).value) || 0;
         const denierNum = parseFloat(denierName.split(' ')[0]) || 0;
 
         const displayN = document.getElementById(`n-${denierSafe}`);
