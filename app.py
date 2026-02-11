@@ -172,6 +172,113 @@ def programming():
     sc_data = db.get_all_scheduling_data()
     return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
 
+@app.route('/api/generate_schedule', methods=['POST'])
+def api_generate_schedule():
+    from db.queries import DBQueries
+    from integrations.openai_ia import generate_production_schedule
+    
+    data = request.json or {}
+    strategy = data.get('strategy', 'kg')
+    
+    db = DBQueries()
+    sc_data = db.get_all_scheduling_data()
+    pending_requirements = db.get_pending_requirements()
+    
+    # Calculate backlog summary per denier, integrating both manual orders and automatic requirements
+    backlog_summary = {}
+    
+    # 1. Process Manual Orders
+    for o in sc_data['orders']:
+        d_name = o.get('deniers', {}).get('name')
+        if not d_name: continue
+        if d_name not in backlog_summary:
+            backlog_summary[d_name] = {'kg_total': 0, 'is_priority': False}
+        
+        kg_pending = (o['total_kg'] - (o.get('produced_kg') or 0))
+        backlog_summary[d_name]['kg_total'] += kg_pending
+        # Manual orders are treated as priority by default or we can check a flag if added
+        backlog_summary[d_name]['is_priority'] = True 
+
+    # 2. Process Automatic Requirements (where the "PRIORIDAD" checkboxes live)
+    # Match these with deniers from products
+    all_products = db.get_inventarios_cabuyas()
+    product_map = {p['codigo']: p for p in all_products}
+    
+    for req in pending_requirements:
+        prod = product_map.get(req['codigo'])
+        if not prod: continue
+        
+        d_name = prod.get('referencia_denier')
+        if not d_name: continue
+        
+        if d_name not in backlog_summary:
+            backlog_summary[d_name] = {'kg_total': 0, 'is_priority': False}
+        
+        kg_req = abs(req['requerimientos'] or 0)
+        backlog_summary[d_name]['kg_total'] += kg_req
+        if req.get('prioridad'):
+            backlog_summary[d_name]['is_priority'] = True
+
+    result = generate_production_schedule(
+        orders=sc_data['orders'],
+        rewinder_capacities=sc_data['rewinder_capacities'],
+        shifts=sc_data['shifts'],
+        torsion_capacities=sc_data['torsion_capacities'],
+        backlog_summary=backlog_summary,
+        strategy=strategy
+    )
+    
+    return jsonify(result)
+
+@app.route('/api/ai_chat', methods=['POST'])
+def api_ai_chat():
+    data = request.json
+    user_message = data.get('message')
+    from db.queries import DBQueries
+    db = DBQueries()
+    orders = db.get_orders()
+    
+    # Simple context injection
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": f"Eres el asistente inteligente de la planta Ciplas. Tienes acceso al backlog actual: {orders}. Responde de forma profesional y técnica."},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        return jsonify({"response": response.choices[0].message.content})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+@app.route('/api/ai_scenario', methods=['POST'])
+def api_ai_scenario():
+    from db.queries import DBQueries
+    from integrations.openai_ia import get_ai_optimization_scenario
+    db = DBQueries()
+    orders = db.get_orders()
+    
+    # Reports simulation
+    reports = [] 
+    
+    scenario = get_ai_optimization_scenario(orders, reports)
+    return jsonify({"scenario": scenario})
+
+@app.route('/api/save_schedule', methods=['POST'])
+def api_save_schedule():
+    from db.queries import DBQueries
+    db = DBQueries()
+    data = request.json
+    try:
+        name = f"Plan {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        db.save_scheduling_scenario(name, data)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/config')
 def config():
     from db.queries import DBQueries
