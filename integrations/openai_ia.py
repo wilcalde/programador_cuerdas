@@ -53,18 +53,30 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         for m in d_data.get('machines', []):
             kgh_lookup[(m['machine_id'], denier)] = m['kgh']
 
-    # 2. Preparar Backlog
+    # 2. Preparar Backlog (A nivel de Referencia/Producto)
     backlog = []
     if backlog_summary:
-        for ref, data in backlog_summary.items():
+        for code, data in backlog_summary.items():
             if data.get('kg_total', 0) > 0.1:
+                ref_name = f"{code} ({data.get('description', '')})"
+                denier_name = data.get('denier')
+                
+                # Get Rewinder Rate for this denier
+                rw_rate = rewinder_capacities.get(denier_name, {}).get('kg_per_hour', 0)
+                n_optimo = rewinder_capacities.get(denier_name, {}).get('n_optimo', 1)
+
                 backlog.append({
-                    "ref": ref,
+                    "code": code,
+                    "ref": ref_name,
+                    "denier": denier_name,
                     "kg_pendientes": float(data['kg_total']),
                     "kg_total_inicial": float(data['kg_total']),
-                    "is_priority": data.get('is_priority', False)
+                    "is_priority": data.get('is_priority', False),
+                    "rw_rate": rw_rate,
+                    "n_optimo": n_optimo
                 })
     else:
+        # Fallback to pure denier aggregation if summary is missing
         temp = {}
         for o in orders:
             ref = o.get('deniers', {}).get('name', 'N/A')
@@ -72,22 +84,29 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             if kg > 0.1:
                 temp[ref] = temp.get(ref, 0) + kg
         for ref, kg in temp.items():
+            rw_rate = rewinder_capacities.get(ref, {}).get('kg_per_hour', 0)
+            n_optimo = rewinder_capacities.get(ref, {}).get('n_optimo', 1)
             backlog.append({
+                "code": ref,
                 "ref": ref, 
+                "denier": ref,
                 "kg_pendientes": float(kg), 
                 "kg_total_inicial": float(kg),
-                "is_priority": False
+                "is_priority": False,
+                "rw_rate": rw_rate,
+                "n_optimo": n_optimo
             })
 
-    # Aplicar Criterio de Ordenamiento (Estrategia)
+    # Aplicar Criterio de Ordenamiento (Estrategia de Negocio)
     if strategy == 'priority':
-        # 1. Prioridades primero, luego por volumen de Kg
+        # 1. Prioridades primero, luego volumen
         backlog.sort(key=lambda x: (not x['is_priority'], -x['kg_pendientes']))
-        comentario_adicional = "Priorizando items marcados como PRIORIDAD."
+        comentario_adicional = "Priorizando referencias marcadas como PRIORIDAD ⭐."
     else:
-        # 1. Maximizar Kg (Volúmenes más grandes primero)
-        backlog.sort(key=lambda x: -x['kg_pendientes'])
-        comentario_adicional = "Maximizando volumen de producción (Kg)."
+        # 1. Maximizar Kg: Priorizar referencias con mayor tasa de salida (Kg/h) en Rewinder
+        # Si las tasas son iguales, priorizar volumen
+        backlog.sort(key=lambda x: (-x['rw_rate'], -x['kg_pendientes']))
+        comentario_adicional = "Maximizando flujo de producción (Kg/h) 📈."
 
     # 3. Configuración de Calendario y Tiempos
     def fmt_h(val):
@@ -147,18 +166,19 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 if puestos_restantes <= 0 or not maquinas_restantes: break
                 
                 ref_name = b['ref']
-                tasa_unit_rw = rewinder_capacities.get(ref_name, {}).get('kg_per_hour', 0)
+                denier_name = b['denier']
+                tasa_unit_rw = b['rw_rate']
+                n_optimo = b['n_optimo']
+
                 if tasa_unit_rw <= 0: continue
                 
-                n_optimo = rewinder_capacities.get(ref_name, {}).get('n_optimo', 1)
-
-                # Priorizar Torsión: Buscar máquinas compatibles disponibles
-                maquinas_compatibles = sorted([m for m in maquinas_restantes if kgh_lookup.get((m, ref_name), 0) > 0], 
-                                            key=lambda x: kgh_lookup[(x, ref_name)], reverse=True)
+                # Priorizar Torsión: Buscar máquinas compatibles disponibles para este DENIER
+                maquinas_compatibles = sorted([m for m in maquinas_restantes if kgh_lookup.get((m, denier_name), 0) > 0], 
+                                            key=lambda x: kgh_lookup[(x, denier_name)], reverse=True)
                 if not maquinas_compatibles: continue
                 
                 # Capacidad de suministro SUSTENTABLE para Rewinder
-                capacidad_suministro_total = sum(kgh_lookup[(m, ref_name)] for m in maquinas_compatibles)
+                capacidad_suministro_total = sum(kgh_lookup[(m, denier_name)] for m in maquinas_compatibles)
                 puestos_posibles = math.floor(capacidad_suministro_total / tasa_unit_rw)
                 
                 # Asignación final de puestos para este slot
@@ -171,7 +191,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                     sum_suministro = 0
                     maquinas_usadas = []
                     for m in maquinas_compatibles:
-                        vel = kgh_lookup[(m, ref_name)]
+                        vel = kgh_lookup[(m, denier_name)]
                         sum_suministro += vel
                         maquinas_usadas.append(m)
                         if sum_suministro >= demanda_kgh - 0.01: break
@@ -182,7 +202,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                         "maquinas_asig": maquinas_usadas,
                         "kgh_supply": sum_suministro,
                         "kgh_consumo": demanda_kgh,
-                        "n_optimo": n_optimo
+                        "n_optimo": n_optimo,
+                        "denier": denier_name  # Store denier for the next loop
                     })
                     
                     puestos_restantes -= puestos_asig
@@ -205,6 +226,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 kg_proc = item['kgh_consumo'] * duracion_slot
                 kg_supply = item['kgh_supply'] * duracion_slot
                 ref_name = b['ref']
+                denier_name = item['denier']
                 
                 dia_entry["turnos_asignados"].append({
                     "orden_secuencia": len(dia_entry["turnos_asignados"]) + 1,
@@ -217,7 +239,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 })
                 
                 for m_id in item['maquinas_asig']:
-                    vel = kgh_lookup[(m_id, ref_name)]
+                    vel = kgh_lookup[(m_id, denier_name)]
                     kg_m = vel * duracion_slot
                     dia_entry["requerimiento_abastecimiento"]["detalle_torcedoras"].append({
                         "maquina": m_id, "ref": ref_name, "horas": round(duracion_slot, 2), "kg_aportados": round(kg_m, 2)
