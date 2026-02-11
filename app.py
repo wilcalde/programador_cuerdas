@@ -80,7 +80,17 @@ def backlog():
             return (0.0, name)
             
     deniers.sort(key=denier_sort_key)
-    return render_template('backlog.html', active_page='backlog', title='Backlog', orders=orders, deniers=deniers)
+    
+    pending_requirements = db.get_pending_requirements()
+    inventarios_cabuyas = db.get_inventarios_cabuyas()
+    
+    return render_template('backlog.html', 
+                         active_page='backlog', 
+                         title='Backlog', 
+                         orders=orders, 
+                         deniers=deniers, 
+                         pending_requirements=pending_requirements,
+                         inventarios_cabuyas=inventarios_cabuyas)
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
@@ -88,9 +98,10 @@ def add_backlog():
     denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
     req_date = request.form.get('required_date')
+    cabuya_codigo = request.form.get('cabuya_codigo')
     
     if denier_id and kg and req_date:
-        db.create_order(denier_id, kg, req_date)
+        db.create_order(denier_id, kg, req_date, cabuya_codigo)
         flash(f"Pedido de {kg}kg guardado", "success")
     return redirect(url_for('backlog'))
 
@@ -101,9 +112,10 @@ def edit_backlog():
     denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
     req_date = request.form.get('required_date')
+    cabuya_codigo = request.form.get('cabuya_codigo')
     
     if order_id and denier_id and kg and req_date:
-        db.update_order(order_id, denier_id, kg, req_date)
+        db.update_order(order_id, denier_id, kg, req_date, cabuya_codigo)
         flash(f"Pedido #{order_id[:6]} actualizado", "success")
     return redirect(url_for('backlog'))
 

@@ -27,25 +27,27 @@ class DBQueries:
 
     # --- Orders / Pedidos ---
     def get_orders(self) -> List[Dict[str, Any]]:
-        response = self.supabase.table("orders").select("*, deniers(name)").execute()
+        response = self.supabase.table("orders").select("*, deniers(name), inventarios_cabuyas(*)").execute()
         return response.data
 
-    def create_order(self, denier_id: str, kg: float, required_date: str):
+    def create_order(self, denier_id: str, kg: float, required_date: str, cabuya_codigo: str = None):
         data = {
             "denier_id": denier_id,
             "total_kg": kg,
             "priority": 3, # Default priority
-            "required_date": required_date
+            "required_date": required_date,
+            "cabuya_codigo": cabuya_codigo
         }
         return self.supabase.table("orders").insert(data).execute()
     
-    def update_order(self, order_id: str, denier_id: str, kg: float, required_date: str):
+    def update_order(self, order_id: str, denier_id: str, kg: float, required_date: str, cabuya_codigo: str = None):
         """Update an existing order"""
         data = {
             "denier_id": denier_id,
             "total_kg": kg,
             "priority": 3, # Reset to default or keep as is (3 for now)
-            "required_date": required_date
+            "required_date": required_date,
+            "cabuya_codigo": cabuya_codigo
         }
         return self.supabase.table("orders").update(data).eq("id", order_id).execute()
     
@@ -221,3 +223,8 @@ class DBQueries:
     def update_cabuya_inventory_security(self, codigo: str, security_value: float):
         """Update the security inventory value for a specific cabuya"""
         return self.supabase.table("inventarios_cabuyas").update({"inventario_seguridad": security_value}).eq("codigo", codigo).execute()
+
+    def get_pending_requirements(self) -> List[Dict[str, Any]]:
+        """Get all cabuyas inventory records with negative requirements"""
+        response = self.supabase.table("inventarios_cabuyas").select("*").lt("requerimientos", 0).order("requerimientos", desc=False).execute()
+        return response.data if response.data else []
