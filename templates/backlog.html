@@ -24,7 +24,7 @@
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                     <td style="padding: 0.75rem; font-weight: 700;">{{ req.codigo }}</td>
                     <td style="padding: 0.75rem;">{{ req.descripcion }}</td>
-                    <td style="padding: 0.75rem; color: #ef4444; font-weight: 700;">{{ "{:,.2f}".format(req.requerimientos|abs) }} kg</td>
+                    <td style="padding: 0.75rem; color: #ef4444; font-weight: 700;">{{ "{:,.2f}".format((req.requerimientos or 0)|abs) }} kg</td>
                     <td style="padding: 0.75rem; text-align: center;">
                         <input type="checkbox" 
                                class="priority-check" 
@@ -73,16 +73,15 @@
             .then(data => {
                 if (data.success) {
                     console.log(`Prioridad actualizada para ${codigo}`);
-                    // Optional: show a small toast or visual feedback
                 } else {
                     alert('Error al actualizar prioridad: ' + (data.error || 'Desconocido'));
-                    this.checked = !prioridad; // Revert on failure
+                    this.checked = !prioridad;
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
                 alert('Fallo la conexión con el servidor');
-                this.checked = !prioridad; // Revert on failure
+                this.checked = !prioridad;
             });
         });
     });
