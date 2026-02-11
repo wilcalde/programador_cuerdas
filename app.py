@@ -61,16 +61,7 @@ def backlog():
     
     # Ensure critical deniers exist in DB
     existing_names = {d['name'] for d in deniers}
-    if "6000 expo" not in existing_names or "12000 expo" not in existing_names:
-        try:
-            for crit in ["6000 expo", "12000 expo"]:
-                if crit not in existing_names:
-                    db.create_denier(crit, 37.0)
-            # Refresh list
-            deniers = db.get_deniers()
-        except:
-            pass
-    # Sort deniers numerically by name, handling suffixes like 'expo'
+    # Numeric sorting for deniers
     def denier_sort_key(d):
         name = d.get('name', '0')
         numeric_part = name.split(' ')[0]
@@ -98,40 +89,51 @@ def backlog():
     # Process "Manual" requirements from orders
     # We filter for orders created manually (usually have cabuya_codigo and weren't already accounted for)
     # For now, let's treat all pending orders as "Manual" items in this list if they have a code
+    for o in orders:
+        if o.get('cabuya_codigo'):
+            backlog_list.append({
+                'codigo': o['cabuya_codigo'],
+                'descripcion': '(Pedido Manual)',
+                'requerimientos': o['total_kg'],
+                'prioridad': True,
+                'origen': 'Manual'
+            })
+
+    total_pending_kg = sum(req['requerimientos'] for req in backlog_list)
     
     return render_template('backlog.html', 
                          active_page='backlog', 
                          title='Backlog',
                          orders=orders,
                          deniers=deniers,
-                         backlog_list=backlog_list)
+                         backlog_list=backlog_list,
+                         inventarios_cabuyas=inventarios_cabuyas,
+                         total_pending_kg=total_pending_kg)
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
     db = DBQueries()
-    denier_id = request.form.get('denier_id')
     kg = request.form.get('kg', type=float)
-    req_date = request.form.get('required_date')
     cabuya_codigo = request.form.get('cabuya_codigo')
     
-    if denier_id and kg and req_date:
-        db.create_order(denier_id, kg, req_date, cabuya_codigo)
-        flash("Pedido manual añadido", "success")
+    if cabuya_codigo and kg:
+        # Auto-detect denier from product code
+        cabuyas = db.get_inventarios_cabuyas()
+        product = next((c for c in cabuyas if c['codigo'] == cabuya_codigo), None)
+        
+        if product:
+            denier_name = product.get('referencia_denier')
+            deniers = db.get_deniers()
+            denier_obj = next((d for d in deniers if d['name'] == denier_name), None)
             
-    return redirect(url_for('backlog'))
-
-@app.route('/backlog/edit', methods=['POST'])
-def edit_backlog():
-    db = DBQueries()
-    order_id = request.form.get('order_id')
-    denier_id = request.form.get('denier_id')
-    kg = request.form.get('kg', type=float)
-    req_date = request.form.get('required_date')
-    cabuya_codigo = request.form.get('cabuya_codigo')
-    
-    if order_id and denier_id and kg and req_date:
-        db.update_order(order_id, denier_id, kg, req_date, cabuya_codigo)
-        flash(f"Pedido #{order_id[:6]} actualizado", "success")
+            if denier_obj:
+                db.create_order(denier_obj['id'], kg, (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d'), cabuya_codigo)
+                flash(f"Pedido añadido para {cabuya_codigo}", "success")
+            else:
+                flash(f"Error: Denier {denier_name} no encontrado en el catálogo", "error")
+        else:
+            flash("Error: Producto no encontrado", "error")
+            
     return redirect(url_for('backlog'))
 
 @app.route('/backlog/delete/<order_id>', methods=['POST'])
