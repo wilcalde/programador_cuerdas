@@ -63,6 +63,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 backlog.append({
                     "code": code,         # Product code (e.g. CAB04456)
                     "ref": code,           # Reference = product code ONLY
+                    "descripcion": data.get('description', ''),
                     "denier": denier_name,  # Denier name for capacity lookup
                     "kg_pendientes": float(data['kg_total']),
                     "kg_total_inicial": float(data['kg_total']),
@@ -159,6 +160,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 dia_entry["turnos_asignados"].append({
                     "orden_secuencia": len(dia_entry["turnos_asignados"]) + 1,
                     "referencia": b_ref['ref'],
+                    "descripcion": b_ref.get('descripcion', ''),
                     "hora_inicio": fmt_h(working_hours - horas_restantes),
                     "hora_fin": fmt_h(working_hours - horas_restantes + duracion),
                     "puestos_utilizados": n_ref,
@@ -180,6 +182,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                             dia_entry["requerimiento_abastecimiento"]["detalle_torcedoras"].append({
                                 "maquina": m_id,
                                 "ref": b_ref['ref'],
+                                "descripcion": b_ref.get('descripcion', ''),
                                 "horas": round(duracion, 1),
                                 "kg_aportados": round(aporte, 1)
                             })
@@ -189,6 +192,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 if b_ref['kg_pendientes'] <= 0.05 and b_ref['ref'] not in tabla_finalizacion_refs:
                     tabla_finalizacion_refs[b_ref['ref']] = {
                         "referencia": b_ref['ref'],
+                        "descripcion": b_ref.get('descripcion', ''),
                         "fecha_finalizacion": f"{date_str} {fmt_h(working_hours - horas_restantes + duracion)}",
                         "puestos_promedio": n_ref,
                         "kg_totales": b_ref['kg_total_inicial']
@@ -200,8 +204,15 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 c = consumos_dia.get(r_name, 0)
                 s = suministros_dia.get(r_name, 0)
                 bal = s - c
+                # Find description for this reference
+                desc_for_ref = ''
+                for b_item in backlog:
+                    if b_item['ref'] == r_name:
+                        desc_for_ref = b_item.get('descripcion', '')
+                        break
                 dia_entry["requerimiento_abastecimiento"]["balance_por_referencia"].append({
                     "referencia": r_name,
+                    "descripcion": desc_for_ref,
                     "kg_suministro": round(s, 1),
                     "kg_consumo": round(c, 1),
                     "balance": round(bal, 1),
