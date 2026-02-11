@@ -33,9 +33,10 @@ def get_n_optimo_rew(tm_minutos: float, mp_segundos: float = 37) -> float:
         N: Número óptimo de máquinas por operario (punto de saturación)
     """
     mp_min = mp_segundos / 60
-    # N = Máquinas por operario (Punto de saturación)
-    n_optimo = (mp_min + tm_minutos) / mp_min
-    return math.floor(n_optimo)
+    # N = Máquinas por operario (Basado en redondeo de TM/MP según requerimiento visual)
+    if mp_min == 0: return 1
+    n_optimo = tm_minutos / mp_min
+    return round(n_optimo)
 
 def get_rafia_input(kg_objetivo: float, desperdicio: float = 0.03) -> float:
     """

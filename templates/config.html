@@ -422,11 +422,12 @@
         const displayKgh = document.getElementById(`kgh-rw-${denierSafe}`);
 
         if (mp > 0 && tm > 0) {
-            const n = (tm * 60) / mp;
+            const n = tm / (mp / 60);
             displayN.innerText = Math.round(n);
 
-            // Formula: (3.6 / Mp) * (Denier / 9000) * 0.8
-            const kgh = (3.6 / mp) * (denierNum / 9000) * 0.8;
+            // Corrected Formula: (60 / TM) * 0.8
+            // Values in image (2000 denier, 13.1 TM) should result in ~3.66 Kg/h
+            const kgh = (60 / tm) * 0.8;
             displayKgh.innerText = kgh.toFixed(2);
         } else {
             displayN.innerText = '-';
