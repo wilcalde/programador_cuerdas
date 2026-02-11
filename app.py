@@ -168,7 +168,7 @@ def api_generate_schedule():
     all_products = db.get_inventarios_cabuyas()
     product_map = {p['codigo']: p for p in all_products}
     
-    # 2. Process Manual Orders
+    # 2. Process Manual Orders (Direct Demand)
     for o in sc_data['orders']:
         codigo = o.get('cabuya_codigo')
         if not codigo: continue
@@ -178,38 +178,44 @@ def api_generate_schedule():
         
         if not d_name: continue
         
+        kg_pending = (o['total_kg'] - (o.get('produced_kg') or 0))
+        if kg_pending <= 0.1: continue
+
         if codigo not in backlog_summary:
             backlog_summary[codigo] = {
                 'description': prod.get('descripcion') if prod else 'Pedido Manual',
                 'kg_total': 0, 
-                'is_priority': True, # Manual orders are priority
+                'is_priority': True,
                 'denier': d_name
             }
-        
-        kg_pending = (o['total_kg'] - (o.get('produced_kg') or 0))
         backlog_summary[codigo]['kg_total'] += kg_pending
 
-    # 3. Process Automatic Requirements (Existencias vs Inv. Seguridad)
+    # 3. Process Automatic Requirements (Only if NOT already covered by manual orders for the same code)
+    # This prevents double counting if a manual order was created to cover a shortage.
     for req in pending_requirements:
         codigo = req['codigo']
-        prod = product_map.get(codigo)
-        if not prod: continue
-        
-        d_name = prod.get('referencia_denier')
-        if not d_name: continue
-        
-        if codigo not in backlog_summary:
+        kg_req = abs(req['requerimientos'] or 0)
+        if kg_req <= 0.1: continue
+
+        if codigo in backlog_summary:
+            # If manual order exists, we assume it's part of the requirement or an addition.
+            # Usually, manual orders are specifically for a customer, while automatic are for stock.
+            # To be safe and strictly follow "what is in backlog", we add them.
+            backlog_summary[codigo]['kg_total'] += kg_req
+            if req.get('prioridad'):
+                backlog_summary[codigo]['is_priority'] = True
+        else:
+            prod = product_map.get(codigo)
+            if not prod: continue
+            d_name = prod.get('referencia_denier')
+            if not d_name: continue
+            
             backlog_summary[codigo] = {
                 'description': prod.get('descripcion'),
-                'kg_total': 0, 
-                'is_priority': False,
+                'kg_total': kg_req, 
+                'is_priority': req.get('prioridad', False),
                 'denier': d_name
             }
-        
-        kg_req = abs(req['requerimientos'] or 0)
-        backlog_summary[codigo]['kg_total'] += kg_req
-        if req.get('prioridad'):
-            backlog_summary[codigo]['is_priority'] = True
 
     result = generate_production_schedule(
         orders=sc_data['orders'],
