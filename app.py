@@ -322,6 +322,33 @@ def add_denier():
         flash(f"Denier {name} añadido", "success")
     return redirect(url_for('config'))
 
+@app.route('/config/cabuyas/update', methods=['POST'])
+def update_cabuyas():
+    db = DBQueries()
+    try:
+        # Expecting a list of updates or iterating through form
+        # To keep it simple, we'll iterate through all inputs starting with 'sec_'
+        updated_count = 0
+        for key, value in request.form.items():
+            if key.startswith('sec_'):
+                codigo = key.replace('sec_', '')
+                try:
+                    security_val = float(value)
+                    db.update_cabuya_inventory_security(codigo, security_val)
+                    updated_count += 1
+                except ValueError:
+                    continue
+        
+        if updated_count > 0:
+            flash(f"Se actualizaron {updated_count} niveles de seguridad.", "success")
+        else:
+            flash("No se realizaron cambios.", "info")
+            
+    except Exception as e:
+        flash(f"Error al actualizar: {str(e)}", "error")
+        
+    return redirect(url_for('config'))
+
 @app.route('/reports')
 def reports():
     return render_template('reports.html', active_page='reports', title='Reportes')

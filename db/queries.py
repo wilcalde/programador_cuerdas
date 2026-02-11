@@ -217,3 +217,7 @@ class DBQueries:
     def bulk_insert_cabuyas(self, data: List[Dict[str, Any]]):
         """Bulk insert cabuyas inventory records"""
         return self.supabase.table("inventarios_cabuyas").upsert(data, on_conflict="codigo").execute()
+
+    def update_cabuya_inventory_security(self, codigo: str, security_value: float):
+        """Update the security inventory value for a specific cabuya"""
+        return self.supabase.table("inventarios_cabuyas").update({"inventario_seguridad": security_value}).eq("codigo", codigo).execute()
