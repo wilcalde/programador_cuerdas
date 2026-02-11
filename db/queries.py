@@ -196,7 +196,7 @@ class DBQueries:
             "torsion_capacities": torsion_capacities,
             "shifts": self.get_shifts() # Fetch all defined shifts
         }
-
+ 
     # --- Saved Schedules ---
     def save_scheduling_scenario(self, name: str, plan_data: Dict[str, Any]):
         data = {
@@ -207,3 +207,13 @@ class DBQueries:
 
     def get_saved_schedules(self, limit: int = 10):
         return self.supabase.table("scheduling_scenarios").select("*").order("created_at", desc=True).limit(limit).execute()
+
+    # --- Inventarios Cabuyas ---
+    def get_inventarios_cabuyas(self) -> List[Dict[str, Any]]:
+        """Get all cabuyas inventory records"""
+        response = self.supabase.table("inventarios_cabuyas").select("*").order("codigo").execute()
+        return response.data if response.data else []
+
+    def bulk_insert_cabuyas(self, data: List[Dict[str, Any]]):
+        """Bulk insert cabuyas inventory records"""
+        return self.supabase.table("inventarios_cabuyas").upsert(data, on_conflict="codigo").execute()

@@ -205,6 +205,7 @@ def config():
     deniers = db.get_deniers()
     rewinder_configs = db.get_rewinder_denier_configs()
     machine_denier_configs = db.get_machine_denier_configs()
+    inventarios_cabuyas = db.get_inventarios_cabuyas()
     
     # Group machine configs by machine_id
     machine_configs_mapped = {}
@@ -241,7 +242,8 @@ def config():
                          deniers=deniers,
                          machine_configs=machine_configs_mapped,
                          rewinder_configs={str(c['denier']): c for c in rewinder_configs},
-                         calendar=calendar)
+                         calendar=calendar,
+                         inventarios_cabuyas=inventarios_cabuyas)
 
 @app.route('/config/torsion/update', methods=['POST'])
 def update_torsion():

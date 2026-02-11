@@ -85,6 +85,7 @@
         <div class="tab-item" onclick="switchTab('rewinder', this)">Rewinder</div>
         <div class="tab-item" onclick="switchTab('catalog', this)">Catálogo</div>
         <div class="tab-item" onclick="switchTab('shifts', this)">Turnos</div>
+        <div class="tab-item" onclick="switchTab('cabuyas', this)">Inventarios Cabuyas</div>
     </div>
 
     <!-- Torsion Content -->
@@ -294,6 +295,55 @@
                 </button>
             </div>
         </form>
+    </div>
+
+    <!-- Inventarios Cabuyas Content -->
+    <div id="tab-cabuyas" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <div>
+                <h3>Inventario de Cabuyas</h3>
+                <p style="color: #94A3B8;">Resumen de existencias y niveles de seguridad.</p>
+            </div>
+            <div class="glass"
+                style="padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.8rem; color: var(--accent-blue);">
+                <i class="bi bi-box-seam"></i> {{ inventarios_cabuyas|length }} Referencias
+            </div>
+        </div>
+
+        <table class="config-table">
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Estado</th>
+                    <th>Grupo</th>
+                    <th>Existencia</th>
+                    <th>Descripción</th>
+                    <th>Inv. Seguridad</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in inventarios_cabuyas %}
+                <tr>
+                    <td style="font-weight: 700; color: var(--accent-blue);">{{ item.codigo }}</td>
+                    <td><span class="badge"
+                            style="background: {% if item.estado == 'AC' %}rgba(34, 197, 94, 0.1){% else %}rgba(148, 163, 184, 0.1){% endif %}; color: {% if item.estado == 'AC' %}#22c55e{% else %}#94a3b8{% endif %};">{{
+                            item.estado }}</span></td>
+                    <td>{{ item.grupo }}</td>
+                    <td style="font-weight: 600;">{{ "{:,.2f}".format(item.existencia) }}</td>
+                    <td style="font-size: 0.9rem;">{{ item.descripcion }}</td>
+                    <td style="font-weight: 600; color: var(--accent-blue);">{{
+                        "{:,.2f}".format(item.inventario_seguridad) }}</td>
+                </tr>
+                {% endfor %}
+                {% if not inventarios_cabuyas %}
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 4rem; color: #94A3B8;">
+                        No hay datos de inventario disponibles.
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}
