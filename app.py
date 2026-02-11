@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from datetime import datetime, timedelta
 import json
 import traceback
+import re
 import sys
 from db.queries import DBQueries
 
@@ -12,6 +13,18 @@ app.secret_key = os.environ.get("SECRET_KEY", "ciplas_master_cord_secret")
 # Helper to check auth
 def is_authenticated():
     return session.get('authenticated', False)
+
+def infer_denier_from_description(descripcion):
+    """Infer denier value from product description when denier column is null.
+    E.g. 'CABUYA ECO 12x1K VERDE' -> '12000', 'CABUYA CLA 9X1' -> '9000'
+    """
+    if not descripcion:
+        return None
+    match = re.search(r'(\d+)\s*[xX]\s*1', descripcion)
+    if match:
+        multiplier = int(match.group(1))
+        return str(multiplier * 1000)
+    return None
 
 @app.before_request
 def check_auth():
@@ -30,7 +43,6 @@ def login():
         email = request.form.get('email')
         password = request.form.get('password')
         
-        # Simple simulation as per previous app logic
         if email == "admin@ciplas.com" and password == "admin123":
             session['authenticated'] = True
             session['user_email'] = email
@@ -66,11 +78,9 @@ def backlog():
             for crit in ["6000 expo", "12000 expo"]:
                 if crit not in existing_names:
                     db.create_denier(crit, 37.0)
-            # Refresh list
             deniers = db.get_deniers()
         except:
             pass
-    # Sort deniers numerically by name, handling suffixes like 'expo'
     def denier_sort_key(d):
         name = d.get('name', '0')
         numeric_part = name.split(' ')[0]
@@ -96,14 +106,13 @@ def backlog():
         })
     
     # Process "Manual" requirements from orders
-    # We filter for orders created manually (usually have cabuya_codigo and weren't already accounted for)
     for o in orders:
         if o.get('cabuya_codigo'):
             backlog_list.append({
                 'codigo': o['cabuya_codigo'],
                 'descripcion': '(Pedido Manual)',
                 'requerimientos': o['total_kg'],
-                'prioridad': True, # Manual orders often high priority
+                'prioridad': True,
                 'origen': 'Manual'
             })
 
@@ -125,22 +134,28 @@ def add_backlog():
     cabuya_codigo = request.form.get('cabuya_codigo')
     
     if cabuya_codigo and kg:
-        # Auto-detect denier from product code
         cabuyas = db.get_inventarios_cabuyas()
         product = next((c for c in cabuyas if c['codigo'] == cabuya_codigo), None)
         
         if product:
-            denier_name = product.get('referencia_denier')
-            deniers = db.get_deniers()
-            denier_obj = next((d for d in deniers if d['name'] == denier_name), None)
-            
-            if denier_obj:
-                # Use today's date as default required date
-                req_date = datetime.now().strftime('%Y-%m-%d')
-                db.create_order(denier_obj['id'], kg, req_date, cabuya_codigo)
-                flash(f"Pedido manual de {kg}kg para {cabuya_codigo} registrado", "success")
+            denier_val = product.get('denier')
+            if denier_val:
+                denier_name = str(int(denier_val))
             else:
-                flash(f"Error: No se encontró el Denier '{denier_name}' para el producto", "error")
+                denier_name = infer_denier_from_description(product.get('descripcion'))
+            
+            if denier_name:
+                deniers = db.get_deniers()
+                denier_obj = next((d for d in deniers if d['name'] == denier_name), None)
+                
+                if denier_obj:
+                    req_date = datetime.now().strftime('%Y-%m-%d')
+                    db.create_order(denier_obj['id'], kg, req_date, cabuya_codigo)
+                    flash(f"Pedido manual de {kg}kg para {cabuya_codigo} registrado", "success")
+                else:
+                    flash(f"Error: No se encontró el Denier '{denier_name}' para el producto", "error")
+            else:
+                flash("Error: No se pudo determinar el Denier del producto", "error")
         else:
             flash("Error: Código de producto no encontrado", "error")
             
@@ -185,55 +200,63 @@ def api_generate_schedule():
     sc_data = db.get_all_scheduling_data()
     pending_requirements = db.get_pending_requirements()
     
-    # Calculate backlog summary per Reference (Product/Cabuya)
+    # ============================================================
+    # BUILD BACKLOG SUMMARY DIRECTLY FROM PENDING REQUIREMENTS
+    # This is the ONLY source of truth (matches exactly what backlog.html shows)
+    # ============================================================
     backlog_summary = {}
     
-    all_products = db.get_inventarios_cabuyas()
-    product_map = {p['codigo']: p for p in all_products}
-    
-    # 2. Process Manual Orders (Direct Demand)
-    for o in sc_data['orders']:
-        codigo = o.get('cabuya_codigo')
-        if not codigo: continue
-        
-        prod = product_map.get(codigo)
-        d_name = o.get('deniers', {}).get('name') if o.get('deniers') else (prod.get('referencia_denier') if prod else None)
-        
-        if not d_name: continue
-        
-        kg_pending = (o['total_kg'] - (o.get('produced_kg') or 0))
-        if kg_pending <= 0.1: continue
-
-        if codigo not in backlog_summary:
-            backlog_summary[codigo] = {
-                'description': prod.get('descripcion') if prod else 'Pedido Manual',
-                'kg_total': 0, 
-                'is_priority': True,
-                'denier': d_name
-            }
-        backlog_summary[codigo]['kg_total'] += kg_pending
-
-    # 3. Process Automatic Requirements (Avoid double counting)
+    # The pending_requirements come directly from inventarios_cabuyas where requerimientos < 0
+    # Each record has: codigo, descripcion, denier (float or null), requerimientos (negative), prioridad
     for req in pending_requirements:
         codigo = req['codigo']
         kg_req = abs(req['requerimientos'] or 0)
-        if kg_req <= 0.1: continue
-
-        if codigo in backlog_summary:
-            # We add them to match the EXACT sum of the Backlog View (backlog.html)
-            backlog_summary[codigo]['kg_total'] += kg_req
-            if req.get('prioridad'):
-                backlog_summary[codigo]['is_priority'] = True
+        if kg_req <= 0.1:
+            continue
+        
+        # Get denier name for this product
+        # Column 'denier' is a float (e.g. 2000.0, 18000.0) or null
+        denier_val = req.get('denier')
+        if denier_val is not None:
+            # Convert float to string to match deniers table name format
+            d_name = str(int(denier_val))
         else:
-            prod = product_map.get(codigo)
-            if not prod: continue
-            d_name = prod.get('referencia_denier')
-            if not d_name: continue
-            
+            # Try to infer denier from description (e.g. '12x1K' -> '12000')
+            d_name = infer_denier_from_description(req.get('descripcion'))
+        
+        if not d_name:
+            # Skip products where we can't determine the denier
+            continue
+        
+        backlog_summary[codigo] = {
+            'description': req.get('descripcion', ''),
+            'kg_total': kg_req,
+            'is_priority': req.get('prioridad', False),
+            'denier': d_name
+        }
+    
+    # Also add manual orders (if any have cabuya_codigo set)
+    for o in sc_data['orders']:
+        codigo = o.get('cabuya_codigo')
+        if not codigo:
+            continue
+        
+        kg_pending = (o['total_kg'] - (o.get('produced_kg') or 0))
+        if kg_pending <= 0.1:
+            continue
+        
+        d_name = o.get('deniers', {}).get('name') if o.get('deniers') else None
+        if not d_name:
+            continue
+        
+        if codigo in backlog_summary:
+            # Don't double count - automatic requirement already covers this
+            pass
+        else:
             backlog_summary[codigo] = {
-                'description': prod.get('descripcion'),
-                'kg_total': kg_req, 
-                'is_priority': req.get('prioridad', False),
+                'description': '(Pedido Manual)',
+                'kg_total': kg_pending,
+                'is_priority': True,
                 'denier': d_name
             }
 
@@ -307,7 +330,6 @@ def config():
     machine_denier_configs = db.get_machine_denier_configs()
     inventarios_cabuyas = db.get_inventarios_cabuyas()
     
-    # Group machine configs by machine_id
     machine_configs_mapped = {}
     for c in machine_denier_configs:
         m_id = c['machine_id']
@@ -315,13 +337,11 @@ def config():
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
     
-    # Pre-calculate next 30 days for shifts
     today = datetime.now().date()
     start_date = today + timedelta(days=1)
     end_date = start_date + timedelta(days=29)
     shifts_db = db.get_shifts(str(start_date), str(end_date))
     
-    # Map shifts by date for easy lookup
     shifts_dict = {str(s['date']): s['working_hours'] for s in shifts_db}
     calendar = []
     curr = start_date
@@ -446,7 +466,7 @@ def reports():
 def ai_consultancy():
     return render_template('ai.html', active_page='ai', title='Consultoría IA')
 
-# Health check and Diagnostics
+# Health check
 @app.route('/health')
 def health():
     diagnostics = {
@@ -469,7 +489,6 @@ def health():
     
     return jsonify(diagnostics)
 
-# Global error handler
 @app.errorhandler(Exception)
 def handle_exception(e):
     if hasattr(e, 'code') and isinstance(e.code, int) and e.code < 500:

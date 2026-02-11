@@ -40,7 +40,7 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], reports: List[Di
 def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capacities: Dict[str, Dict], total_rewinders: int = 28, shifts: List[Dict[str, Any]] = None, torsion_capacities: Dict[str, Dict] = None, backlog_summary: Dict[str, Any] = None, strategy: str = 'kg') -> Dict[str, Any]:
     """
     Motor de Programación: Simulación de Continuidad de Masa y Balance de Inventario.
-    Sincronizado con el Frontend (Backlog detallado).
+    Uses ONLY the backlog_summary provided by app.py (from inventarios_cabuyas).
     """
     
     # 1. Mapeo de velocidades por máquina
@@ -50,24 +50,10 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         for m in d_data.get('machines', []):
             kgh_lookup[(m['machine_id'], denier)] = m['kgh']
 
-    # 2. Preparar Backlog
+    # 2. Preparar Backlog EXCLUSIVAMENTE desde backlog_summary
+    # NO HAY FALLBACK - si backlog_summary está vacío, el plan será vacío
     backlog = []
-    if not backlog_summary:
-        temp = {}
-        for o in orders:
-            ref = o.get('deniers', {}).get('name', 'N/A')
-            kg = o.get('total_kg', 0) - (o.get('produced_kg', 0) or 0)
-            if kg > 0.1: temp[ref] = temp.get(ref, 0) + kg
-        for ref, kg in temp.items():
-            rw_rate = rewinder_capacities.get(ref, {}).get('kg_per_hour', 0)
-            n_optimo = rewinder_capacities.get(ref, {}).get('n_optimo', 1)
-            backlog.append({
-                "code": ref, "ref": ref, 
-                "denier": ref,
-                "kg_pendientes": float(kg), "kg_total_inicial": float(kg),
-                "is_priority": False, "rw_rate": rw_rate, "n_optimo": n_optimo
-            })
-    else:
+    if backlog_summary:
         for code, data in backlog_summary.items():
             if data.get('kg_total', 0) > 0.1:
                 denier_name = data.get('denier')
@@ -75,15 +61,35 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 n_optimo = rewinder_capacities.get(denier_name, {}).get('n_optimo', 1)
                 
                 backlog.append({
-                    "code": code,
-                    "ref": code, # Using only product code as requested
-                    "denier": denier_name,
+                    "code": code,         # Product code (e.g. CAB04456)
+                    "ref": code,           # Reference = product code ONLY
+                    "denier": denier_name,  # Denier name for capacity lookup
                     "kg_pendientes": float(data['kg_total']),
                     "kg_total_inicial": float(data['kg_total']),
                     "is_priority": data.get('is_priority', False),
                     "rw_rate": rw_rate,
                     "n_optimo": n_optimo
                 })
+
+    # If no backlog items, return empty schedule
+    if not backlog:
+        return {
+            "scenario": {
+                "resumen_global": {
+                    "comentario_estrategia": "No hay items en el backlog para programar.",
+                    "fecha_finalizacion_total": "N/A",
+                    "total_dias_programados": 0,
+                    "kg_totales_plan": 0
+                },
+                "tabla_finalizacion_referencias": [],
+                "cronograma_diario": [],
+                "datos_para_grafica": {
+                    "labels": [],
+                    "dataset_kg_produccion": [],
+                    "dataset_operarios": []
+                }
+            }
+        }
 
     # Ordenar según estrategia
     if strategy == 'priority':
