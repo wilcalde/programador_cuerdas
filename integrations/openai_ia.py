@@ -50,10 +50,9 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         for m in d_data.get('machines', []):
             kgh_lookup[(m['machine_id'], denier)] = m['kgh']
 
-    # 2. Preparar Backlog (A nivel de Referencia/Producto)
+    # 2. Preparar Backlog
     backlog = []
     if not backlog_summary:
-        # Fallback (Safety)
         temp = {}
         for o in orders:
             ref = o.get('deniers', {}).get('name', 'N/A')
@@ -63,7 +62,8 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             rw_rate = rewinder_capacities.get(ref, {}).get('kg_per_hour', 0)
             n_optimo = rewinder_capacities.get(ref, {}).get('n_optimo', 1)
             backlog.append({
-                "code": ref, "ref": ref, "denier": ref,
+                "code": ref, "ref": ref, 
+                "denier": ref,
                 "kg_pendientes": float(kg), "kg_total_inicial": float(kg),
                 "is_priority": False, "rw_rate": rw_rate, "n_optimo": n_optimo
             })
@@ -76,7 +76,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 
                 backlog.append({
                     "code": code,
-                    "ref": f"{code} ({data.get('description', '')})",
+                    "ref": code, # Using only product code as requested
                     "denier": denier_name,
                     "kg_pendientes": float(data['kg_total']),
                     "kg_total_inicial": float(data['kg_total']),
@@ -113,7 +113,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
     total_kg_inicial = total_kg_backlog
 
     # 4. Simulación
-    while total_kg_backlog > 1.0 and len(cronograma_final) < 45:
+    while total_kg_backlog > 0.01 and len(cronograma_final) < 60:
         date_str = current_date.strftime("%Y-%m-%d")
         working_hours = float(shifts_dict.get(date_str, 24))
         
@@ -131,13 +131,11 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         if working_hours > 0:
             horas_restantes = working_hours
             puestos_en_uso = 0
-            consumos_dia = {} # ref -> kg
-            suministros_dia = {} # ref -> kg
+            consumos_dia = {}
+            suministros_dia = {}
             
-            # Recoger referencias con pendientes
-            eligibles = [b for b in backlog if b['kg_pendientes'] > 0.5]
+            eligibles = [b for b in backlog if b['kg_pendientes'] > 0.01]
             
-            # Secuencia por turno/día
             for b_ref in eligibles:
                 if puestos_en_uso >= total_rewinders: break
                 
@@ -147,13 +145,11 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 capacidad_h = n_ref * b_ref['rw_rate']
                 if capacidad_h <= 0: continue
                 
-                # Cuanto tiempo puede correr esta referencia hoy
                 duracion = min(horas_restantes, b_ref['kg_pendientes'] / capacidad_h)
                 kg_producidos = capacidad_h * duracion
                 
-                if kg_producidos < 0.1: continue
+                if kg_producidos < 0.01: continue
                 
-                # Registrar Turno Rewinder
                 dia_entry["turnos_asignados"].append({
                     "orden_secuencia": len(dia_entry["turnos_asignados"]) + 1,
                     "referencia": b_ref['ref'],
@@ -168,10 +164,9 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 b_ref['kg_pendientes'] -= kg_producidos
                 puestos_en_uso += n_ref
                 
-                # Abastecimiento
                 suministro_falta = kg_producidos
                 for m_id in all_machines:
-                    if suministro_falta <= 0.01: break
+                    if suministro_falta <= 0.001: break
                     kgh_m = kgh_lookup.get((m_id, b_ref['denier']), 0)
                     if kgh_m > 0:
                         aporte = min(suministro_falta, kgh_m * duracion)
@@ -185,8 +180,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                             suministro_falta -= aporte
                             suministros_dia[b_ref['ref']] = suministros_dia.get(b_ref['ref'], 0) + aporte
                 
-                # Check finalización
-                if b_ref['kg_pendientes'] <= 1.0 and b_ref['ref'] not in tabla_finalizacion_refs:
+                if b_ref['kg_pendientes'] <= 0.05 and b_ref['ref'] not in tabla_finalizacion_refs:
                     tabla_finalizacion_refs[b_ref['ref']] = {
                         "referencia": b_ref['ref'],
                         "fecha_finalizacion": f"{date_str} {fmt_h(working_hours - horas_restantes + duracion)}",
@@ -194,7 +188,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                         "kg_totales": b_ref['kg_total_inicial']
                     }
 
-            # Calcular Balances
+            # Balances
             refs_hoy = set(consumos_dia.keys()) | set(suministros_dia.keys())
             for r_name in refs_hoy:
                 c = consumos_dia.get(r_name, 0)
@@ -214,7 +208,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
         total_kg_backlog = sum(b['kg_pendientes'] for b in backlog)
         current_date += timedelta(days=1)
 
-    # 5. Formatear para Frontend (Scenario object)
+    # 5. Formatear para Frontend
     labels = [d['fecha'] for d in cronograma_final]
     kg_data = [d['requerimiento_abastecimiento']['kg_totales_demandados'] for d in cronograma_final]
     ops_data = [max([t['operarios_calculados'] for t in d['turnos_asignados']] + [0]) for d in cronograma_final]

@@ -61,7 +61,16 @@ def backlog():
     
     # Ensure critical deniers exist in DB
     existing_names = {d['name'] for d in deniers}
-    # Numeric sorting for deniers
+    if "6000 expo" not in existing_names or "12000 expo" not in existing_names:
+        try:
+            for crit in ["6000 expo", "12000 expo"]:
+                if crit not in existing_names:
+                    db.create_denier(crit, 37.0)
+            # Refresh list
+            deniers = db.get_deniers()
+        except:
+            pass
+    # Sort deniers numerically by name, handling suffixes like 'expo'
     def denier_sort_key(d):
         name = d.get('name', '0')
         numeric_part = name.split(' ')[0]
@@ -88,14 +97,13 @@ def backlog():
     
     # Process "Manual" requirements from orders
     # We filter for orders created manually (usually have cabuya_codigo and weren't already accounted for)
-    # For now, let's treat all pending orders as "Manual" items in this list if they have a code
     for o in orders:
         if o.get('cabuya_codigo'):
             backlog_list.append({
                 'codigo': o['cabuya_codigo'],
                 'descripcion': '(Pedido Manual)',
                 'requerimientos': o['total_kg'],
-                'prioridad': True,
+                'prioridad': True, # Manual orders often high priority
                 'origen': 'Manual'
             })
 
@@ -103,9 +111,9 @@ def backlog():
     
     return render_template('backlog.html', 
                          active_page='backlog', 
-                         title='Backlog',
-                         orders=orders,
-                         deniers=deniers,
+                         title='Backlog', 
+                         orders=orders, 
+                         deniers=deniers, 
                          backlog_list=backlog_list,
                          inventarios_cabuyas=inventarios_cabuyas,
                          total_pending_kg=total_pending_kg)
@@ -127,13 +135,29 @@ def add_backlog():
             denier_obj = next((d for d in deniers if d['name'] == denier_name), None)
             
             if denier_obj:
-                db.create_order(denier_obj['id'], kg, (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d'), cabuya_codigo)
-                flash(f"Pedido añadido para {cabuya_codigo}", "success")
+                # Use today's date as default required date
+                req_date = datetime.now().strftime('%Y-%m-%d')
+                db.create_order(denier_obj['id'], kg, req_date, cabuya_codigo)
+                flash(f"Pedido manual de {kg}kg para {cabuya_codigo} registrado", "success")
             else:
-                flash(f"Error: Denier {denier_name} no encontrado en el catálogo", "error")
+                flash(f"Error: No se encontró el Denier '{denier_name}' para el producto", "error")
         else:
-            flash("Error: Producto no encontrado", "error")
+            flash("Error: Código de producto no encontrado", "error")
             
+    return redirect(url_for('backlog'))
+
+@app.route('/backlog/edit', methods=['POST'])
+def edit_backlog():
+    db = DBQueries()
+    order_id = request.form.get('order_id')
+    denier_id = request.form.get('denier_id')
+    kg = request.form.get('kg', type=float)
+    req_date = request.form.get('required_date')
+    cabuya_codigo = request.form.get('cabuya_codigo')
+    
+    if order_id and denier_id and kg and req_date:
+        db.update_order(order_id, denier_id, kg, req_date, cabuya_codigo)
+        flash(f"Pedido #{order_id[:6]} actualizado", "success")
     return redirect(url_for('backlog'))
 
 @app.route('/backlog/delete/<order_id>', methods=['POST'])
@@ -164,7 +188,6 @@ def api_generate_schedule():
     # Calculate backlog summary per Reference (Product/Cabuya)
     backlog_summary = {}
     
-    # 1. Process Product Metadata for easy lookup
     all_products = db.get_inventarios_cabuyas()
     product_map = {p['codigo']: p for p in all_products}
     
@@ -190,17 +213,14 @@ def api_generate_schedule():
             }
         backlog_summary[codigo]['kg_total'] += kg_pending
 
-    # 3. Process Automatic Requirements (Only if NOT already covered by manual orders for the same code)
-    # This prevents double counting if a manual order was created to cover a shortage.
+    # 3. Process Automatic Requirements (Avoid double counting)
     for req in pending_requirements:
         codigo = req['codigo']
         kg_req = abs(req['requerimientos'] or 0)
         if kg_req <= 0.1: continue
 
         if codigo in backlog_summary:
-            # If manual order exists, we assume it's part of the requirement or an addition.
-            # Usually, manual orders are specifically for a customer, while automatic are for stock.
-            # To be safe and strictly follow "what is in backlog", we add them.
+            # We add them to match the EXACT sum of the Backlog View (backlog.html)
             backlog_summary[codigo]['kg_total'] += kg_req
             if req.get('prioridad'):
                 backlog_summary[codigo]['is_priority'] = True
@@ -236,7 +256,6 @@ def api_ai_chat():
     db = DBQueries()
     orders = db.get_orders()
     
-    # Simple context injection
     from openai import OpenAI
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
@@ -258,7 +277,6 @@ def api_ai_scenario():
     from integrations.openai_ia import get_ai_optimization_scenario
     db = DBQueries()
     orders = db.get_orders()
-    # Mocking reports for now or fetching from DB if available
     reports = [] 
     scenario = get_ai_optimization_scenario(orders, reports)
     return jsonify({"response": scenario})
@@ -281,6 +299,7 @@ def api_save_schedule():
 
 @app.route('/config')
 def config():
+    from db.queries import DBQueries
     db = DBQueries()
     machines = db.get_machines_torsion()
     deniers = db.get_deniers()
@@ -450,21 +469,19 @@ def health():
     
     return jsonify(diagnostics)
 
-# Global error handler to catch and show 500 details
+# Global error handler
 @app.errorhandler(Exception)
 def handle_exception(e):
-    # Pass through HTTP errors
     if hasattr(e, 'code') and isinstance(e.code, int) and e.code < 500:
         return jsonify(error=str(e)), e.code
     
     tb = traceback.format_exc()
-    print(tb) # Will show in Vercel logs
+    print(tb)
     return jsonify({
         "error": str(e),
         "traceback": tb.split('\n')
     }), 500
 
-# Error handler for 404
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
