@@ -164,46 +164,142 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 }
                 
                 puestos_disponibles = total_rewinders
-                total_ops_turno = 0
+                MAX_OPERARIOS_TURNO = 6
+                MIN_UTILIZATION = 0.40  # 40% minimum utilization threshold
                 
                 # Get eligible items (still have pending kg)
                 eligibles = [b for b in backlog if b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0]
                 
+                # ============================================================
+                # PHASE 1: Assign full n_optimo blocks (multiple per reference)
+                # Goal: fill 28 rewinders with at most 6 operators
+                # ============================================================
+                asignaciones_turno = []  # [{ref_data, puestos, operarios, kg_real}, ...]
+                operarios_usados = 0
+                
                 for b_ref in eligibles:
-                    if puestos_disponibles <= 0:
+                    if puestos_disponibles <= 0 or operarios_usados >= MAX_OPERARIOS_TURNO:
                         break
                     
-                    # Assign posts: use n_optimo as the unit block
                     n_optimo = b_ref['n_optimo']
-                    # Assign as many n_optimo blocks as possible, but don't exceed available
-                    puestos_asignados = min(n_optimo, puestos_disponibles)
                     
-                    if puestos_asignados <= 0:
+                    # How many full n_optimo blocks can we assign?
+                    bloques_posibles = puestos_disponibles // n_optimo
+                    bloques_posibles = min(bloques_posibles, MAX_OPERARIOS_TURNO - operarios_usados)
+                    
+                    if bloques_posibles < 1:
                         continue
+                    
+                    puestos_asignados = bloques_posibles * n_optimo
+                    operarios = bloques_posibles
                     
                     # Calculate production for the full 8 hours with these posts
                     capacidad_h = puestos_asignados * b_ref['rw_rate']
                     kg_en_turno = capacidad_h * SHIFT_DURATION
                     
-                    # If reference finishes before 8h, still assign for the period
-                    # but record actual kg (allow slight over to fill shift)
-                    kg_real = min(kg_en_turno, b_ref['kg_pendientes'])
-                    
-                    # If the reference would finish in less than 1 hour remaining,
-                    # allow producing the full shift block (slight over-production)
                     horas_necesarias = b_ref['kg_pendientes'] / capacidad_h if capacidad_h > 0 else SHIFT_DURATION
                     if horas_necesarias >= (SHIFT_DURATION * 0.5):
-                        # More than half the shift needed - assign full shift
-                        kg_real = kg_en_turno if kg_en_turno <= b_ref['kg_pendientes'] else b_ref['kg_pendientes']
+                        kg_real = min(kg_en_turno, b_ref['kg_pendientes'])
                     else:
-                        # Less than half shift - produce what's needed, free up posts
                         kg_real = b_ref['kg_pendientes']
                     
                     if kg_real < 0.01:
                         continue
                     
-                    # Calculate operators for this assignment
-                    operarios = math.ceil(puestos_asignados / n_optimo)
+                    asignaciones_turno.append({
+                        'b_ref': b_ref,
+                        'puestos': puestos_asignados,
+                        'operarios': operarios,
+                        'kg_real': kg_real
+                    })
+                    
+                    puestos_disponibles -= puestos_asignados
+                    operarios_usados += operarios
+                
+                # ============================================================
+                # PHASE 2: Distribute remaining posts (40% rule)
+                # If posts remain, try to assign them to more references
+                # but only if utilization >= 40%. Otherwise, add machines
+                # to existing operators.
+                # ============================================================
+                if puestos_disponibles > 0:
+                    remaining_eligibles = [b for b in eligibles 
+                                           if b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0
+                                           and not any(a['b_ref']['ref'] == b['ref'] for a in asignaciones_turno)]
+                    
+                    for b_ref in remaining_eligibles:
+                        if puestos_disponibles <= 0:
+                            break
+                        
+                        n_optimo = b_ref['n_optimo']
+                        puestos_parcial = min(puestos_disponibles, n_optimo)
+                        utilization = puestos_parcial / n_optimo
+                        
+                        if utilization >= MIN_UTILIZATION and operarios_usados < MAX_OPERARIOS_TURNO:
+                            # Enough utilization → assign as a new operator
+                            capacidad_h = puestos_parcial * b_ref['rw_rate']
+                            kg_en_turno = capacidad_h * SHIFT_DURATION
+                            kg_real = min(kg_en_turno, b_ref['kg_pendientes'])
+                            
+                            if kg_real < 0.01:
+                                continue
+                            
+                            asignaciones_turno.append({
+                                'b_ref': b_ref,
+                                'puestos': puestos_parcial,
+                                'operarios': 1,
+                                'kg_real': kg_real
+                            })
+                            puestos_disponibles -= puestos_parcial
+                            operarios_usados += 1
+                        else:
+                            # Below 40% utilization → distribute to existing operators
+                            # Add these posts to the largest existing assignment (same denier preferred)
+                            best_match = None
+                            for a in asignaciones_turno:
+                                if a['b_ref']['denier'] == b_ref['denier']:
+                                    if best_match is None or a['puestos'] > best_match['puestos']:
+                                        best_match = a
+                            
+                            if best_match is None and asignaciones_turno:
+                                best_match = max(asignaciones_turno, key=lambda x: x['puestos'])
+                            
+                            if best_match:
+                                # Add posts to existing operator's assignment
+                                extra_kg = puestos_parcial * best_match['b_ref']['rw_rate'] * SHIFT_DURATION
+                                extra_kg = min(extra_kg, best_match['b_ref']['kg_pendientes'] - best_match['kg_real'])
+                                if extra_kg > 0:
+                                    best_match['puestos'] += puestos_parcial
+                                    best_match['kg_real'] += extra_kg
+                                    puestos_disponibles -= puestos_parcial
+                
+                # If we still have remaining posts after Phase 2 and existing
+                # assignments can absorb more, distribute evenly
+                if puestos_disponibles > 0 and asignaciones_turno:
+                    for a in asignaciones_turno:
+                        if puestos_disponibles <= 0:
+                            break
+                        b_ref = a['b_ref']
+                        # Check if this reference still has pending kg to justify more machines
+                        remaining_capacity = a['puestos'] * b_ref['rw_rate'] * SHIFT_DURATION
+                        if b_ref['kg_pendientes'] > remaining_capacity * 0.5:
+                            extra = min(puestos_disponibles, b_ref['n_optimo'])
+                            extra_kg = extra * b_ref['rw_rate'] * SHIFT_DURATION
+                            extra_kg = min(extra_kg, b_ref['kg_pendientes'] - a['kg_real'])
+                            if extra_kg > 0:
+                                a['puestos'] += extra
+                                a['kg_real'] += extra_kg
+                                puestos_disponibles -= extra
+                
+                # ============================================================
+                # COMMIT: Build final assignment entries for this shift
+                # ============================================================
+                total_ops_turno = 0
+                for a in asignaciones_turno:
+                    b_ref = a['b_ref']
+                    kg_real = a['kg_real']
+                    puestos_asignados = a['puestos']
+                    operarios = a['operarios']
                     total_ops_turno += operarios
                     
                     turno_entry["asignaciones"].append({
@@ -217,7 +313,6 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                     # Track consumption
                     consumos_dia[b_ref['ref']] = consumos_dia.get(b_ref['ref'], 0) + kg_real
                     b_ref['kg_pendientes'] -= kg_real
-                    puestos_disponibles -= puestos_asignados
                     
                     # Supply from torsion machines
                     suministro_falta = kg_real
