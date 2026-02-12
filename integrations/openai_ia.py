@@ -163,7 +163,7 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                     "asignaciones": []
                 }
                 
-                puestos_disponibles = total_rewinders
+                puestos_disponibles = total_rewinders  # 28
                 MAX_OPERARIOS_TURNO = 7
                 KG_TOLERANCE = 0.10  # ±10% flexibility on reference kg
                 
@@ -171,163 +171,84 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 eligibles = [b for b in backlog if b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0]
                 
                 # ============================================================
-                # OPERATOR-CENTRIC ASSIGNMENT
-                # Each operator handles ≤ n_optimo puestos (MAQ/OP constraint).
-                # Goal: fill all 28 puestos with ≤ 7 operators, mixing refs.
-                # Invariant: a['puestos'] ≤ a['operarios'] × n_optimo  ALWAYS
+                # PACKING-OPTIMAL GREEDY ASSIGNMENT
+                # Assigns operators one-by-one, choosing the reference that
+                # contributes the MOST puestos (highest n_optimo) to reach 28.
+                # Multiple operators can work the same reference.
+                # Invariant: puestos <= operarios * n_optimo  (MAQ/OP)
                 # ============================================================
-                asignaciones_turno = []  # [{b_ref, puestos, operarios, kg_real}, ...]
+                asig_map = {}  # ref_code -> {b_ref, puestos, operarios, kg_real}
                 operarios_usados = 0
-                refs_asignadas = set()
                 
-                # --- PHASE 1: Round-robin — 1 operator per reference ---
-                # Assign one operator to each eligible reference first to
-                # maximize mixing of low-denier and high-denier references.
-                for b_ref in eligibles:
-                    if puestos_disponibles <= 0 or operarios_usados >= MAX_OPERARIOS_TURNO:
-                        break
-                    
-                    n_optimo = b_ref['n_optimo']
-                    puestos_op = min(n_optimo, puestos_disponibles)
-                    
-                    capacidad_h = puestos_op * b_ref['rw_rate']
-                    kg_en_turno = capacidad_h * SHIFT_DURATION
-                    max_kg_ref = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
-                    kg_real = min(kg_en_turno, max_kg_ref)
-                    
-                    if kg_real < 0.01:
-                        continue
-                    
-                    asignaciones_turno.append({
-                        'b_ref': b_ref,
-                        'puestos': puestos_op,
-                        'operarios': 1,
-                        'kg_real': kg_real
-                    })
-                    
-                    puestos_disponibles -= puestos_op
-                    operarios_usados += 1
-                    refs_asignadas.add(b_ref['ref'])
-                
-                # --- PHASE 2: Fill remaining puestos with more operators ---
-                # Add operators (to existing or new refs) until 28 puestos
-                # are filled or 7 operators are used.
                 while puestos_disponibles > 0 and operarios_usados < MAX_OPERARIOS_TURNO:
-                    best = None
-                    best_gap = float('inf')
-                    best_type = None  # 'existing' or 'new'
+                    best_ref = None
+                    best_p = 0
+                    best_kg = 0
+                    best_is_new = False
                     
-                    # Option A: Add another operator to an existing reference
-                    for a in asignaciones_turno:
-                        b_ref = a['b_ref']
-                        n_optimo = b_ref['n_optimo']
-                        puestos_op = min(n_optimo, puestos_disponibles)
-                        # Check kg headroom (with ±10% tolerance)
-                        max_kg_ref = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
-                        new_kg = puestos_op * b_ref['rw_rate'] * SHIFT_DURATION
-                        if a['kg_real'] + new_kg > max_kg_ref:
-                            continue  # Not enough backlog even with tolerance
-                        gap = puestos_disponibles - puestos_op
-                        if gap < best_gap:
-                            best_gap = gap
-                            best = a
-                            best_type = 'existing'
-                    
-                    # Option B: Add a new reference
                     for b_ref in eligibles:
-                        if b_ref['ref'] in refs_asignadas:
+                        n = b_ref['n_optimo']
+                        p = min(n, puestos_disponibles)
+                        kg = p * b_ref['rw_rate'] * SHIFT_DURATION
+                        
+                        # Check kg headroom (with +/-10% tolerance)
+                        existing_kg = asig_map.get(b_ref['ref'], {}).get('kg_real', 0)
+                        max_kg = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
+                        available_kg = max_kg - existing_kg
+                        if available_kg < 0.01:
                             continue
-                        if b_ref['kg_pendientes'] < 0.01:
-                            continue
-                        n_optimo = b_ref['n_optimo']
-                        puestos_op = min(n_optimo, puestos_disponibles)
-                        gap = puestos_disponibles - puestos_op
-                        if gap < best_gap:
-                            best_gap = gap
-                            best = b_ref
-                            best_type = 'new'
+                        actual_kg = min(kg, available_kg)
+                        
+                        is_new = b_ref['ref'] not in asig_map
+                        
+                        # Score: (1) most puestos, (2) prefer new ref, (3) most kg
+                        if (p > best_p or
+                            (p == best_p and is_new and not best_is_new) or
+                            (p == best_p and is_new == best_is_new and actual_kg > best_kg)):
+                            best_ref = b_ref
+                            best_p = p
+                            best_kg = actual_kg
+                            best_is_new = is_new
                     
-                    if best is None:
+                    if best_ref is None:
                         break
                     
-                    if best_type == 'existing':
-                        a = best
-                        b_ref = a['b_ref']
-                        n_optimo = b_ref['n_optimo']
-                        puestos_op = min(n_optimo, puestos_disponibles)
-                        extra_kg = puestos_op * b_ref['rw_rate'] * SHIFT_DURATION
-                        max_kg_ref = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
-                        extra_kg = min(extra_kg, max_kg_ref - a['kg_real'])
-                        if extra_kg > 0:
-                            a['puestos'] += puestos_op
-                            a['operarios'] += 1
-                            a['kg_real'] += extra_kg
-                        puestos_disponibles -= puestos_op
-                        operarios_usados += 1
+                    ref_key = best_ref['ref']
+                    if ref_key in asig_map:
+                        asig_map[ref_key]['puestos'] += best_p
+                        asig_map[ref_key]['operarios'] += 1
+                        asig_map[ref_key]['kg_real'] += best_kg
                     else:
-                        b_ref = best
-                        n_optimo = b_ref['n_optimo']
-                        puestos_op = min(n_optimo, puestos_disponibles)
-                        kg_real = min(puestos_op * b_ref['rw_rate'] * SHIFT_DURATION,
-                                      b_ref['kg_pendientes'] * (1 + KG_TOLERANCE))
-                        if kg_real >= 0.01:
-                            asignaciones_turno.append({
-                                'b_ref': b_ref,
-                                'puestos': puestos_op,
-                                'operarios': 1,
-                                'kg_real': kg_real
-                            })
-                            refs_asignadas.add(b_ref['ref'])
-                        puestos_disponibles -= puestos_op
-                        operarios_usados += 1
-                
-                # --- PHASE 3: Distribute residual puestos (respecting MAQ/OP) ---
-                # Only add puestos to existing operators if their total stays
-                # within the MAQ/OP limit: puestos ≤ operarios × n_optimo.
-                if puestos_disponibles > 0:
-                    # First try adding a new partial-ref operator
-                    if operarios_usados < MAX_OPERARIOS_TURNO:
-                        unassigned = [b for b in eligibles
-                                      if b['ref'] not in refs_asignadas
-                                      and b['kg_pendientes'] > 0.01]
-                        for b_ref in unassigned:
-                            if puestos_disponibles <= 0 or operarios_usados >= MAX_OPERARIOS_TURNO:
-                                break
-                            n_optimo = b_ref['n_optimo']
-                            puestos_op = min(puestos_disponibles, n_optimo)
-                            kg_real = min(puestos_op * b_ref['rw_rate'] * SHIFT_DURATION,
-                                          b_ref['kg_pendientes'] * (1 + KG_TOLERANCE))
-                            if kg_real >= 0.01:
-                                asignaciones_turno.append({
-                                    'b_ref': b_ref,
-                                    'puestos': puestos_op,
-                                    'operarios': 1,
-                                    'kg_real': kg_real
-                                })
-                                refs_asignadas.add(b_ref['ref'])
-                                puestos_disponibles -= puestos_op
-                                operarios_usados += 1
+                        asig_map[ref_key] = {
+                            'b_ref': best_ref,
+                            'puestos': best_p,
+                            'operarios': 1,
+                            'kg_real': best_kg
+                        }
                     
-                    # Distribute remaining to existing operators within MAQ/OP headroom
-                    if puestos_disponibles > 0 and asignaciones_turno:
-                        for a in asignaciones_turno:
-                            if puestos_disponibles <= 0:
-                                break
-                            b_ref = a['b_ref']
-                            n_optimo = b_ref['n_optimo']
-                            # Headroom: max puestos allowed minus current puestos
-                            max_puestos_allowed = a['operarios'] * n_optimo
-                            headroom = max_puestos_allowed - a['puestos']
-                            if headroom <= 0:
-                                continue
-                            extra = min(puestos_disponibles, headroom)
-                            max_kg_ref = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
-                            extra_kg = extra * b_ref['rw_rate'] * SHIFT_DURATION
-                            extra_kg = min(extra_kg, max_kg_ref - a['kg_real'])
-                            if extra_kg > 0:
-                                a['puestos'] += extra
-                                a['kg_real'] += extra_kg
-                                puestos_disponibles -= extra
+                    puestos_disponibles -= best_p
+                    operarios_usados += 1
+                
+                # --- Residual: distribute within MAQ/OP headroom ---
+                if puestos_disponibles > 0:
+                    for ref_key, a in asig_map.items():
+                        if puestos_disponibles <= 0:
+                            break
+                        b_ref = a['b_ref']
+                        n = b_ref['n_optimo']
+                        headroom = a['operarios'] * n - a['puestos']
+                        if headroom <= 0:
+                            continue
+                        extra = min(puestos_disponibles, headroom)
+                        max_kg = b_ref['kg_pendientes'] * (1 + KG_TOLERANCE)
+                        extra_kg = min(extra * b_ref['rw_rate'] * SHIFT_DURATION,
+                                       max_kg - a['kg_real'])
+                        if extra_kg > 0:
+                            a['puestos'] += extra
+                            a['kg_real'] += extra_kg
+                            puestos_disponibles -= extra
+                
+                asignaciones_turno = list(asig_map.values())
                 
                 # ============================================================
                 # COMMIT: Build final assignment entries for this shift
