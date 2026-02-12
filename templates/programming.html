@@ -138,7 +138,18 @@
                         <div class="metric-label">Total Kg en el Plan</div>
                         <div class="metric-value" style="font-size: 1.2rem; color: #10B981;">${res.kg_totales_plan?.toLocaleString() || '0'} kg</div>
                     </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">28 Rewinders Hasta</div>
+                        <div class="metric-value" style="font-size: 1.2rem; color: #FACC15;">${res.fecha_capacidad_completa || 'N/A'}</div>
+                    </div>
                 </div>
+
+                ${res.alerta_capacidad ? `
+                <div style="margin-top: 1.5rem; padding: 1rem 1.5rem; border-radius: 8px; border-left: 4px solid ${res.alerta_capacidad.startsWith('✅') ? '#10B981' : '#FACC15'}; background: ${res.alerta_capacidad.startsWith('✅') ? 'rgba(16,185,129,0.1)' : 'rgba(250,204,21,0.1)'}; font-size: 0.95rem;">
+                    <strong style="color: ${res.alerta_capacidad.startsWith('✅') ? '#10B981' : '#FACC15'};">Alerta de Capacidad:</strong>
+                    <span style="color: #F8FAFC; margin-left: 0.5rem;">${res.alerta_capacidad}</span>
+                </div>
+                ` : ''}
                 
                 <div class="chart-container">
                     <canvas id="resourceChart"></canvas>
@@ -544,18 +555,22 @@
         const metrics = [
             { label: "Fin Estimado", value: currentPlan.resumen_global.fecha_finalizacion_total },
             { label: "Días Programados", value: currentPlan.resumen_global.total_dias_programados },
-            { label: "Total Kg Plan", value: currentPlan.resumen_global.kg_totales_plan?.toLocaleString() + " kg" }
+            { label: "Total Kg Plan", value: currentPlan.resumen_global.kg_totales_plan?.toLocaleString() + " kg" },
+            { label: "28 Rewinders Hasta", value: currentPlan.resumen_global.fecha_capacidad_completa || 'N/A' }
         ];
 
         metrics.forEach((m, i) => {
-            const x = 40 + (i * 170);
+            const col = i % 4;
+            const row = Math.floor(i / 4);
+            const x = 40 + (col * 130);
+            const y = yPos + (row * 55);
             doc.setFillColor(...colors.card);
-            doc.roundedRect(x, yPos, 160, 45, 3, 3, 'F');
-            doc.setFontSize(8); doc.setTextColor(...colors.muted);
+            doc.roundedRect(x, y, 120, 45, 3, 3, 'F');
+            doc.setFontSize(7); doc.setTextColor(...colors.muted);
             doc.setFont("helvetica", "normal");
-            doc.text(m.label.toUpperCase(), x + 10, yPos + 15);
-            doc.setFontSize(11); doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold");
-            doc.text(m.value ? m.value.toString() : '0', x + 10, yPos + 35);
+            doc.text(m.label.toUpperCase(), x + 8, y + 15);
+            doc.setFontSize(10); doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold");
+            doc.text(m.value ? m.value.toString() : '0', x + 8, y + 35);
         });
         yPos += 70;
 
@@ -563,7 +578,21 @@
         const strategyText = `Estrategia: ${currentPlan.resumen_global.comentario_estrategia}`;
         const strategyLines = doc.splitTextToSize(strategyText, pageWidth - 80);
         doc.text(strategyLines, 40, yPos);
-        yPos += (strategyLines.length * 12) + 20;
+        yPos += (strategyLines.length * 12) + 10;
+
+        // Capacity alert in PDF
+        if (currentPlan.resumen_global.alerta_capacidad) {
+            const alertColor = currentPlan.resumen_global.alerta_capacidad.startsWith('✅') ? colors.green : colors.yellow;
+            doc.setFillColor(alertColor[0], alertColor[1], alertColor[2], 0.15);
+            const alertText = currentPlan.resumen_global.alerta_capacidad;
+            const alertLines = doc.splitTextToSize(alertText, pageWidth - 100);
+            const alertHeight = (alertLines.length * 12) + 16;
+            doc.setDrawColor(...alertColor); doc.setLineWidth(2);
+            doc.line(40, yPos, 40, yPos + alertHeight);
+            doc.setFontSize(9); doc.setTextColor(...alertColor); doc.setFont("helvetica", "bold");
+            doc.text(alertLines, 50, yPos + 12);
+            yPos += alertHeight + 15;
+        }
 
         try {
             const resCanvas = document.getElementById('resourceChart');
