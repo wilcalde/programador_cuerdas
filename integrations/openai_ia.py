@@ -171,30 +171,24 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                 eligibles = [b for b in backlog if b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0]
                 
                 # ============================================================
-                # PHASE 1: Assign full n_optimo blocks (multiple per reference)
-                # Goal: fill 28 rewinders with at most 6 operators
+                # PHASE 1 — ROUND-ROBIN: 1 block per reference (diversify)
+                # Assign one n_optimo block to each eligible reference first
+                # to maximize mixing of low-denier and high-denier references.
                 # ============================================================
-                asignaciones_turno = []  # [{ref_data, puestos, operarios, kg_real}, ...]
+                asignaciones_turno = []  # [{b_ref, puestos, operarios, kg_real}, ...]
                 operarios_usados = 0
+                refs_asignadas = set()
                 
                 for b_ref in eligibles:
                     if puestos_disponibles <= 0 or operarios_usados >= MAX_OPERARIOS_TURNO:
                         break
                     
                     n_optimo = b_ref['n_optimo']
+                    if n_optimo > puestos_disponibles:
+                        continue  # Skip if n_optimo doesn't fit; Phase 3 may handle it
                     
-                    # How many full n_optimo blocks can we assign?
-                    bloques_posibles = puestos_disponibles // n_optimo
-                    bloques_posibles = min(bloques_posibles, MAX_OPERARIOS_TURNO - operarios_usados)
-                    
-                    if bloques_posibles < 1:
-                        continue
-                    
-                    puestos_asignados = bloques_posibles * n_optimo
-                    operarios = bloques_posibles
-                    
-                    # Calculate production for the full 8 hours with these posts
-                    capacidad_h = puestos_asignados * b_ref['rw_rate']
+                    # Assign exactly 1 block (1 operator)
+                    capacidad_h = n_optimo * b_ref['rw_rate']
                     kg_en_turno = capacidad_h * SHIFT_DURATION
                     
                     horas_necesarias = b_ref['kg_pendientes'] / capacidad_h if capacidad_h > 0 else SHIFT_DURATION
@@ -208,88 +202,142 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
                     
                     asignaciones_turno.append({
                         'b_ref': b_ref,
-                        'puestos': puestos_asignados,
-                        'operarios': operarios,
+                        'puestos': n_optimo,
+                        'operarios': 1,
                         'kg_real': kg_real
                     })
                     
-                    puestos_disponibles -= puestos_asignados
-                    operarios_usados += operarios
+                    puestos_disponibles -= n_optimo
+                    operarios_usados += 1
+                    refs_asignadas.add(b_ref['ref'])
                 
                 # ============================================================
-                # PHASE 2: Distribute remaining posts (40% rule)
-                # If posts remain, try to assign them to more references
-                # but only if utilization >= 40%. Otherwise, add machines
-                # to existing operators.
+                # PHASE 2 — FILL: Add more blocks to already-assigned refs
+                # Repeat blocks to fill remaining puestos, choosing the
+                # reference whose n_optimo best fits (closest-fit).
+                # ============================================================
+                while puestos_disponibles > 0 and operarios_usados < MAX_OPERARIOS_TURNO:
+                    best_fit = None
+                    best_fit_gap = float('inf')
+                    
+                    for a in asignaciones_turno:
+                        b_ref = a['b_ref']
+                        n_optimo = b_ref['n_optimo']
+                        # Only add more blocks if reference still has enough pending kg
+                        current_capacity = a['puestos'] * b_ref['rw_rate'] * SHIFT_DURATION
+                        if b_ref['kg_pendientes'] <= current_capacity * 0.3:
+                            continue  # This reference is nearly done, skip
+                        if n_optimo > puestos_disponibles:
+                            continue
+                        gap = puestos_disponibles - n_optimo  # how many remain after adding
+                        if gap < best_fit_gap:
+                            best_fit_gap = gap
+                            best_fit = a
+                    
+                    # Also check eligible refs not yet assigned
+                    for b_ref in eligibles:
+                        if b_ref['ref'] in refs_asignadas:
+                            continue
+                        n_optimo = b_ref['n_optimo']
+                        if n_optimo > puestos_disponibles:
+                            continue
+                        capacidad_h = n_optimo * b_ref['rw_rate']
+                        kg_en_turno = capacidad_h * SHIFT_DURATION
+                        if b_ref['kg_pendientes'] < 0.01:
+                            continue
+                        gap = puestos_disponibles - n_optimo
+                        if gap < best_fit_gap:
+                            best_fit_gap = gap
+                            best_fit = b_ref  # raw ref, not assignment
+                    
+                    if best_fit is None:
+                        break
+                    
+                    # Determine if best_fit is an existing assignment or new ref
+                    if isinstance(best_fit, dict) and 'b_ref' in best_fit:
+                        # Existing assignment — add 1 more block
+                        a = best_fit
+                        b_ref = a['b_ref']
+                        n_optimo = b_ref['n_optimo']
+                        extra_cap_h = n_optimo * b_ref['rw_rate']
+                        extra_kg = min(extra_cap_h * SHIFT_DURATION,
+                                       b_ref['kg_pendientes'] - a['kg_real'])
+                        if extra_kg > 0:
+                            a['puestos'] += n_optimo
+                            a['operarios'] += 1
+                            a['kg_real'] += extra_kg
+                        puestos_disponibles -= n_optimo
+                        operarios_usados += 1
+                    else:
+                        # New reference
+                        b_ref = best_fit
+                        n_optimo = b_ref['n_optimo']
+                        capacidad_h = n_optimo * b_ref['rw_rate']
+                        kg_en_turno = capacidad_h * SHIFT_DURATION
+                        horas_necesarias = b_ref['kg_pendientes'] / capacidad_h if capacidad_h > 0 else SHIFT_DURATION
+                        if horas_necesarias >= (SHIFT_DURATION * 0.5):
+                            kg_real = min(kg_en_turno, b_ref['kg_pendientes'])
+                        else:
+                            kg_real = b_ref['kg_pendientes']
+                        
+                        if kg_real >= 0.01:
+                            asignaciones_turno.append({
+                                'b_ref': b_ref,
+                                'puestos': n_optimo,
+                                'operarios': 1,
+                                'kg_real': kg_real
+                            })
+                            refs_asignadas.add(b_ref['ref'])
+                        puestos_disponibles -= n_optimo
+                        operarios_usados += 1
+                
+                # ============================================================
+                # PHASE 3 — RESIDUAL: Handle remaining puestos (< n_optimo)
+                # Try partial assignment with 40% rule, else distribute to
+                # existing operators.
                 # ============================================================
                 if puestos_disponibles > 0:
-                    remaining_eligibles = [b for b in eligibles 
-                                           if b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0
-                                           and not any(a['b_ref']['ref'] == b['ref'] for a in asignaciones_turno)]
+                    # Try new references that haven't been assigned yet
+                    unassigned = [b for b in eligibles
+                                  if b['ref'] not in refs_asignadas
+                                  and b['kg_pendientes'] > 0.01 and b['rw_rate'] > 0]
                     
-                    for b_ref in remaining_eligibles:
+                    for b_ref in unassigned:
                         if puestos_disponibles <= 0:
                             break
-                        
                         n_optimo = b_ref['n_optimo']
                         puestos_parcial = min(puestos_disponibles, n_optimo)
                         utilization = puestos_parcial / n_optimo
                         
                         if utilization >= MIN_UTILIZATION and operarios_usados < MAX_OPERARIOS_TURNO:
-                            # Enough utilization → assign as a new operator
                             capacidad_h = puestos_parcial * b_ref['rw_rate']
-                            kg_en_turno = capacidad_h * SHIFT_DURATION
-                            kg_real = min(kg_en_turno, b_ref['kg_pendientes'])
-                            
-                            if kg_real < 0.01:
-                                continue
-                            
-                            asignaciones_turno.append({
-                                'b_ref': b_ref,
-                                'puestos': puestos_parcial,
-                                'operarios': 1,
-                                'kg_real': kg_real
-                            })
-                            puestos_disponibles -= puestos_parcial
-                            operarios_usados += 1
-                        else:
-                            # Below 40% utilization → distribute to existing operators
-                            # Add these posts to the largest existing assignment (same denier preferred)
-                            best_match = None
-                            for a in asignaciones_turno:
-                                if a['b_ref']['denier'] == b_ref['denier']:
-                                    if best_match is None or a['puestos'] > best_match['puestos']:
-                                        best_match = a
-                            
-                            if best_match is None and asignaciones_turno:
-                                best_match = max(asignaciones_turno, key=lambda x: x['puestos'])
-                            
-                            if best_match:
-                                # Add posts to existing operator's assignment
-                                extra_kg = puestos_parcial * best_match['b_ref']['rw_rate'] * SHIFT_DURATION
-                                extra_kg = min(extra_kg, best_match['b_ref']['kg_pendientes'] - best_match['kg_real'])
+                            kg_real = min(capacidad_h * SHIFT_DURATION, b_ref['kg_pendientes'])
+                            if kg_real >= 0.01:
+                                asignaciones_turno.append({
+                                    'b_ref': b_ref,
+                                    'puestos': puestos_parcial,
+                                    'operarios': 1,
+                                    'kg_real': kg_real
+                                })
+                                refs_asignadas.add(b_ref['ref'])
+                                puestos_disponibles -= puestos_parcial
+                                operarios_usados += 1
+                    
+                    # Distribute any final leftover to existing operators
+                    if puestos_disponibles > 0 and asignaciones_turno:
+                        for a in asignaciones_turno:
+                            if puestos_disponibles <= 0:
+                                break
+                            b_ref = a['b_ref']
+                            extra_cap = a['puestos'] * b_ref['rw_rate'] * SHIFT_DURATION
+                            if b_ref['kg_pendientes'] > extra_cap * 0.3:
+                                extra = min(puestos_disponibles, b_ref['n_optimo'])
+                                extra_kg = extra * b_ref['rw_rate'] * SHIFT_DURATION
+                                extra_kg = min(extra_kg, b_ref['kg_pendientes'] - a['kg_real'])
                                 if extra_kg > 0:
-                                    best_match['puestos'] += puestos_parcial
-                                    best_match['kg_real'] += extra_kg
-                                    puestos_disponibles -= puestos_parcial
-                
-                # If we still have remaining posts after Phase 2 and existing
-                # assignments can absorb more, distribute evenly
-                if puestos_disponibles > 0 and asignaciones_turno:
-                    for a in asignaciones_turno:
-                        if puestos_disponibles <= 0:
-                            break
-                        b_ref = a['b_ref']
-                        # Check if this reference still has pending kg to justify more machines
-                        remaining_capacity = a['puestos'] * b_ref['rw_rate'] * SHIFT_DURATION
-                        if b_ref['kg_pendientes'] > remaining_capacity * 0.5:
-                            extra = min(puestos_disponibles, b_ref['n_optimo'])
-                            extra_kg = extra * b_ref['rw_rate'] * SHIFT_DURATION
-                            extra_kg = min(extra_kg, b_ref['kg_pendientes'] - a['kg_real'])
-                            if extra_kg > 0:
-                                a['puestos'] += extra
-                                a['kg_real'] += extra_kg
-                                puestos_disponibles -= extra
+                                    a['puestos'] += extra
+                                    a['kg_real'] += extra_kg
+                                    puestos_disponibles -= extra
                 
                 # ============================================================
                 # COMMIT: Build final assignment entries for this shift
@@ -386,13 +434,40 @@ def generate_production_schedule(orders: List[Dict[str, Any]], rewinder_capaciti
             day_max_ops = max(day_max_ops, t['operarios_requeridos'])
         ops_data.append(day_max_ops)
 
+    # 6. Capacity Alert: find last date with full 28-rewinder utilization
+    fecha_capacidad_completa = None
+    fecha_carga_baja = None
+    for d in cronograma_final:
+        all_shifts_full = True
+        if not d.get('turnos'):
+            all_shifts_full = False
+        else:
+            for t in d['turnos']:
+                total_puestos_turno = sum(a['puestos'] for a in t.get('asignaciones', []))
+                if total_puestos_turno < total_rewinders:
+                    all_shifts_full = False
+                    break
+        if all_shifts_full:
+            fecha_capacidad_completa = d['fecha']
+        elif fecha_capacidad_completa and not fecha_carga_baja:
+            fecha_carga_baja = d['fecha']
+    
+    if fecha_capacidad_completa and fecha_carga_baja:
+        alerta_capacidad = f"⚠️ Carga completa (28 rewinders) hasta {fecha_capacidad_completa}. A partir del {fecha_carga_baja} la carga disminuye y no se ocupan todas las máquinas."
+    elif fecha_capacidad_completa:
+        alerta_capacidad = f"✅ Carga completa (28 rewinders) durante todo el plan hasta {fecha_capacidad_completa}."
+    else:
+        alerta_capacidad = "⚠️ No hay suficiente backlog para ocupar los 28 rewinders desde el primer día."
+
     return {
         "scenario": {
             "resumen_global": {
                 "comentario_estrategia": comentario_adicional,
                 "fecha_finalizacion_total": cronograma_final[-1]['fecha'] if cronograma_final else "N/A",
                 "total_dias_programados": len(cronograma_final),
-                "kg_totales_plan": round(total_kg_inicial, 1)
+                "kg_totales_plan": round(total_kg_inicial, 1),
+                "fecha_capacidad_completa": fecha_capacidad_completa or "N/A",
+                "alerta_capacidad": alerta_capacidad
             },
             "tabla_finalizacion_referencias": list(tabla_finalizacion_refs.values()),
             "cronograma_diario": cronograma_final,
