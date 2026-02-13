@@ -267,42 +267,6 @@
                 html += `
 
 
-                    <h4 style="color: #38BDF8; margin: 1rem 0 0.5rem; font-size: 0.9rem;"><i class="bi bi-scale"></i> Balance de Masa por Referencia</h4>
-                    <div style="overflow-x: auto;">
-                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
-                            <thead>
-                                <tr style="color: #94A3B8; border-bottom: 1px solid var(--border-color);">
-                                    <th style="padding: 0.4rem;">Referencia</th>
-                                    <th style="padding: 0.4rem;">Descripción</th>
-                                    <th style="padding: 0.4rem;">Suministro (kg)</th>
-                                    <th style="padding: 0.4rem;">Consumo (kg)</th>
-                                    <th style="padding: 0.4rem;">Balance</th>
-                                    <th style="padding: 0.4rem;">Estado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-                if (dia.requerimiento_abastecimiento.balance_por_referencia) {
-                    dia.requerimiento_abastecimiento.balance_por_referencia.forEach(b => {
-                        const statusColor = b.status === 'OK' ? '#10B981' : (b.status === 'EXCESO' ? '#FACC15' : '#EF4444');
-                        html += `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <td style="padding: 0.4rem;"><strong>${b.referencia}</strong></td>
-                                <td style="padding: 0.4rem; font-size: 0.8rem; color: #CBD5E1;">${b.descripcion || ''}</td>
-                                <td style="padding: 0.4rem;">${Math.round(b.kg_suministro)} kg</td>
-                                <td style="padding: 0.4rem;">${Math.round(b.kg_consumo)} kg</td>
-                                <td style="padding: 0.4rem; font-weight: 700;">${b.balance > 0 ? '+' : ''}${Math.round(b.balance)} kg</td>
-                                <td style="padding: 0.4rem;"><span style="color: ${statusColor}; font-weight: 700;">${b.status}</span></td>
-                            </tr>
-                        `;
-                    });
-                }
-
-                html += `
-                            </tbody>
-                        </table>
-                    </div>
                 </div>
                 `;
             });
