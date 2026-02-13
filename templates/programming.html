@@ -63,6 +63,46 @@
         padding: 1rem;
         border-radius: 8px;
     }
+
+    .schedule-tabs {
+        display: flex;
+        gap: 0;
+        margin: 2rem 0 1.5rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .schedule-tab {
+        padding: 0.75rem 2rem;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #94A3B8;
+        border-bottom: 3px solid transparent;
+        transition: all 0.2s;
+        user-select: none;
+    }
+
+    .schedule-tab:hover {
+        color: #F8FAFC;
+    }
+
+    .schedule-tab.active {
+        color: #38BDF8;
+        border-bottom-color: #38BDF8;
+    }
+
+    .schedule-tab.torsion-tab.active {
+        color: #A78BFA;
+        border-bottom-color: #A78BFA;
+    }
+
+    .tab-panel {
+        display: none;
+    }
+
+    .tab-panel.active {
+        display: block;
+    }
 </style>
 {% endblock %}
 
@@ -157,9 +197,9 @@
             </div>
 
             `;
+
+            // ============== SUMMARY TABLE ==============
             html += `
-
-
             <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
             <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #38BDF8;">
                 <table style="width: 100%; border-collapse: collapse; text-align: left;">
@@ -191,9 +231,19 @@
                     </tbody>
                 </table>
             </div>
-
-            <h2 style="margin: 2rem 0 1rem;">📋 Cronograma Diario Detallado</h2>
             `;
+
+            // ============== TAB NAVIGATION ==============
+            html += `
+            <div class="schedule-tabs">
+                <div class="schedule-tab active" onclick="switchScheduleTab('rewinder', this)">🔄 Rewinder</div>
+                <div class="schedule-tab torsion-tab" onclick="switchScheduleTab('torsion', this)">⚙️ Torsión</div>
+            </div>
+            `;
+
+            // ============== REWINDER TAB ==============
+            html += `<div id="panel-rewinder" class="tab-panel active">`;
+            html += `<h2 style="margin: 1rem 0;">📋 Cronograma Diario — Rewinder</h2>`;
 
             scenario.cronograma_diario.forEach(dia => {
                 html += `
@@ -201,11 +251,8 @@
                     <h3 style="background: rgba(56, 189, 248, 0.1); padding: 0.5rem 1rem; border-radius: 4px; border-left: 4px solid var(--accent-blue); margin-bottom: 1.5rem;">
                         📅 Día: ${dia.fecha}
                     </h3>
-                    
-                    <h4 style="color: var(--accent-blue); margin-bottom: 0.75rem;"><i class="bi bi-gear-wide-connected"></i> Programación de Rebobinado (Rewinder) - Turnos Rotativos</h4>
                 `;
 
-                // Render each shift (A, B, C)
                 if (dia.turnos && dia.turnos.length > 0) {
                     dia.turnos.forEach(turno => {
                         const shiftColors = { 'A': '#38BDF8', 'B': '#A78BFA', 'C': '#FB923C' };
@@ -264,11 +311,7 @@
                     html += `<p style="color: #94A3B8; padding: 1rem;">Sin producción programada para este día.</p>`;
                 }
 
-                html += `
-
-
-                </div>
-                `;
+                html += `</div>`;
             });
 
             html += `
@@ -279,6 +322,98 @@
                 </div>
             </div>
             `;
+            html += `</div>`; // close panel-rewinder
+
+            // ============== TORSION TAB ==============
+            html += `<div id="panel-torsion" class="tab-panel">`;
+            html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin: 1rem 0;">
+                <h2>⚙️ Cronograma Diario — Línea de Torsión</h2>
+                <button class="btn btn-primary" onclick="exportTorsionPDF()" style="padding: 0.5rem 1rem; font-size: 0.8rem; background: #7C3AED;">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF Torsión
+                </button>
+            </div>
+            `;
+
+            scenario.cronograma_diario.forEach(dia => {
+                const torsionTurnos = dia.turnos_torsion || [];
+
+                html += `
+                <div class="card glass" style="margin-bottom: 2.5rem; border-bottom: 2px solid #A78BFA;">
+                    <h3 style="background: rgba(167, 139, 250, 0.1); padding: 0.5rem 1rem; border-radius: 4px; border-left: 4px solid #A78BFA; margin-bottom: 1.5rem;">
+                        📅 Día: ${dia.fecha}
+                    </h3>
+                `;
+
+                if (torsionTurnos.length > 0) {
+                    torsionTurnos.forEach(turno => {
+                        const shiftColors = { 'A': '#38BDF8', 'B': '#A78BFA', 'C': '#FB923C' };
+                        const shiftColor = shiftColors[turno.nombre] || '#A78BFA';
+
+                        html += `
+                        <div style="margin-bottom: 1.5rem; border: 1px solid ${shiftColor}33; border-radius: 8px; overflow: hidden;">
+                            <div style="background: ${shiftColor}15; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid ${shiftColor}33;">
+                                <div>
+                                    <span style="font-weight: 700; font-size: 1.1rem; color: ${shiftColor};">⚙️ Turno ${turno.nombre}</span>
+                                    <span style="color: #94A3B8; margin-left: 1rem; font-size: 0.9rem;">${turno.horario}</span>
+                                </div>
+                                <div style="display: flex; gap: 1.5rem; align-items: center;">
+                                    <span style="color: #94A3B8; font-size: 0.85rem;">
+                                        👷 <strong style="color: ${shiftColor};">${turno.operarios_requeridos}</strong> Operario(s)
+                                    </span>
+                                </div>
+                            </div>
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                                    <thead style="background: rgba(0,0,0,0.3);">
+                                        <tr style="color: ${shiftColor}; border-bottom: 1px solid var(--border-color);">
+                                            <th style="padding: 0.5rem;">Máquina</th>
+                                            <th style="padding: 0.5rem;">Referencia</th>
+                                            <th style="padding: 0.5rem;">Denier</th>
+                                            <th style="padding: 0.5rem;">Husos</th>
+                                            <th style="padding: 0.5rem;">Kg/h Máq.</th>
+                                            <th style="padding: 0.5rem;">Producción (8h)</th>
+                                            <th style="padding: 0.5rem;">Operarios</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+
+                        turno.asignaciones.forEach(a => {
+                            const utilizacion = a.husos_totales > 0 ? Math.round((a.husos_asignados / a.husos_totales) * 100) : 0;
+                            const utilizColor = utilizacion >= 80 ? '#10B981' : (utilizacion >= 50 ? '#FACC15' : '#EF4444');
+                            html += `
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 0.75rem; font-weight: 700; color: #A78BFA;">${a.maquina}</td>
+                                    <td style="padding: 0.75rem;"><strong>${a.referencia}</strong></td>
+                                    <td style="padding: 0.75rem; color: #94A3B8;">${a.denier}</td>
+                                    <td style="padding: 0.75rem;">
+                                        <span style="font-weight: 700; color: ${shiftColor};">${a.husos_asignados}</span>
+                                        <span style="color: #64748B;">/ ${a.husos_totales}</span>
+                                        <span style="margin-left: 0.5rem; font-size: 0.75rem; color: ${utilizColor}; font-weight: 600;">(${utilizacion}%)</span>
+                                    </td>
+                                    <td style="padding: 0.75rem; color: #94A3B8;">${a.kgh_maquina}</td>
+                                    <td style="padding: 0.75rem; font-weight: 700; color: #10B981;">${Math.round(a.kg_turno)} kg</td>
+                                    <td style="padding: 0.75rem;">${a.operarios}</td>
+                                </tr>
+                            `;
+                        });
+
+                        html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        `;
+                    });
+                } else {
+                    html += `<p style="color: #94A3B8; padding: 1rem;">Sin asignación de torsión para este día.</p>`;
+                }
+
+                html += `</div>`;
+            });
+
+            html += `</div>`; // close panel-torsion
 
             document.getElementById('results').innerHTML = html;
 
@@ -583,6 +718,136 @@
         }
 
         doc.save(`Plan_Produccion_Cordeleria_${new Date().toISOString().split('T')[0]}.pdf`);
+    }
+
+    function switchScheduleTab(tabName, el) {
+        // Update tab classes
+        document.querySelectorAll('.schedule-tab').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+        // Toggle panels
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById('panel-' + tabName);
+        if (panel) panel.classList.add('active');
+    }
+
+    function exportTorsionPDF() {
+        if (!currentPlan) return;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('l', 'pt', 'a4'); // landscape for wider table
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        const colors = {
+            text: [15, 23, 42],
+            muted: [100, 116, 139],
+            accent: [124, 58, 237], // purple
+            border: [226, 232, 240]
+        };
+
+        const drawHeader = (d) => {
+            d.setFillColor(255, 255, 255);
+            d.rect(0, 0, pageWidth, 80, 'F');
+            d.setTextColor(...colors.text);
+            d.setFontSize(18); d.setFont("helvetica", "bold");
+            d.text("Programación Línea de Torsión", 40, 45);
+            d.setFontSize(10); d.setFont("helvetica", "normal"); d.setTextColor(...colors.muted);
+            d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
+            d.setDrawColor(...colors.border);
+            d.line(40, 75, pageWidth - 40, 75);
+        };
+
+        const drawFooter = (d, pNum, pTot) => {
+            d.setFontSize(8); d.setTextColor(...colors.muted);
+            d.text(`Página ${pNum} de ${pTot}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+        };
+
+        let yPos = 100;
+
+        const checkNewPage = (needed) => {
+            if (yPos + needed > pageHeight - 60) {
+                doc.addPage();
+                drawHeader(doc);
+                yPos = 100;
+                return true;
+            }
+            return false;
+        };
+
+        drawHeader(doc);
+
+        if (currentPlan.cronograma_diario) {
+            currentPlan.cronograma_diario.forEach(dia => {
+                const torsionTurnos = dia.turnos_torsion || [];
+                if (torsionTurnos.length === 0) return;
+
+                checkNewPage(120);
+
+                // Day header
+                doc.setFillColor(248, 250, 252);
+                doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
+                doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+                doc.text(`Fecha: ${dia.fecha}`, 50, yPos + 2);
+                yPos += 30;
+
+                torsionTurnos.forEach(turno => {
+                    checkNewPage(80);
+
+                    doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
+                    doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
+                    yPos += 10;
+
+                    const tableRows = turno.asignaciones.map(a => {
+                        const util = a.husos_totales > 0 ? Math.round((a.husos_asignados / a.husos_totales) * 100) + '%' : '-';
+                        return [
+                            a.maquina,
+                            a.referencia,
+                            a.denier,
+                            `${a.husos_asignados} / ${a.husos_totales} (${util})`,
+                            a.kgh_maquina,
+                            Math.round(a.kg_turno).toLocaleString() + ' kg',
+                            a.operarios
+                        ];
+                    });
+
+                    doc.autoTable({
+                        startY: yPos,
+                        head: [['Máquina', 'Referencia', 'Denier', 'Husos (Asig./Total)', 'Kg/h Máq.', 'Producción (8h)', 'Operarios']],
+                        body: tableRows,
+                        theme: 'grid',
+                        headStyles: {
+                            fillColor: [237, 233, 254],
+                            textColor: [88, 28, 135],
+                            fontStyle: 'bold',
+                            lineColor: [200, 200, 200],
+                            lineWidth: 0.5
+                        },
+                        styles: {
+                            fontSize: 9,
+                            textColor: [50, 50, 50],
+                            cellPadding: 4,
+                            lineColor: [230, 230, 230],
+                            lineWidth: 0.5
+                        },
+                        columnStyles: {
+                            0: { fontStyle: 'bold' },
+                            5: { halign: 'right' }
+                        },
+                        margin: { left: 40, right: 40 }
+                    });
+
+                    yPos = doc.lastAutoTable.finalY + 20;
+                });
+                yPos += 10;
+            });
+        }
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            drawFooter(doc, i, totalPages);
+        }
+
+        doc.save(`Programacion_Torsion_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 
 </script>
