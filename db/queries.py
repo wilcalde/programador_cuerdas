@@ -183,7 +183,10 @@ class DBQueries:
                     total_kgh += kgh
                     machines_details.append({
                         "machine_id": config['machine_id'],
-                        "kgh": round(kgh, 2)
+                        "kgh": round(kgh, 2),
+                        "husos": config['husos'],
+                        "rpm": config['rpm'],
+                        "torsiones_metro": config['torsiones_metro']
                     })
                 except ValueError:
                     continue
