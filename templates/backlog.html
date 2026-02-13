@@ -28,6 +28,7 @@
                     <th style="padding: 0.75rem;">Código</th>
                     <th style="padding: 0.75rem;">Descripción</th>
                     <th style="padding: 0.75rem;">Faltante (KG)</th>
+                    <th style="padding: 0.75rem;">h_proceso</th>
                     <th style="padding: 0.75rem; text-align: center;">Prioridad</th>
                     <th style="padding: 0.75rem; text-align: center;">Origen</th>
                 </tr>
@@ -47,6 +48,9 @@
                     <td style="padding: 0.75rem; color: #ef4444; font-weight: 700;">
                         {{ "{:,.2f}".format(item.requerimientos) }} kg
                     </td>
+                    <td style="padding: 0.75rem; font-weight: 700; color: var(--accent-blue);">
+                        {{ "{:,.2f}".format(item.h_proceso or 0) }} h
+                    </td>
                     <td style="padding: 0.75rem; text-align: center;">
                         {% if item.origen == 'Automatico' %}
                         <input type="checkbox" class="priority-check" data-codigo="{{ item.codigo }}" {% if
@@ -63,9 +67,19 @@
                     </td>
                 </tr>
                 {% endfor %}
+                {% if backlog_list %}
+                <!-- Fila de Totalización -->
+                <tr
+                    style="border-top: 2px solid var(--border-color); background: rgba(255,255,255,0.02); font-weight: 800;">
+                    <td colspan="2" style="padding: 1rem; text-align: right; color: #94A3B8;">TOTAL:</td>
+                    <td style="padding: 1rem; color: #ef4444;">{{ "{:,.2f}".format(total_pending_kg) }} kg</td>
+                    <td style="padding: 1rem; color: var(--accent-blue);">{{ "{:,.2f}".format(total_h_proceso) }} h</td>
+                    <td colspan="2"></td>
+                </tr>
+                {% endif %}
                 {% if not backlog_list %}
                 <tr>
-                    <td colspan="5" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay requerimientos
+                    <td colspan="6" style="padding: 2rem; text-align: center; color: #94A3B8;">No hay requerimientos
                         pendientes.</td>
                 </tr>
                 {% endif %}

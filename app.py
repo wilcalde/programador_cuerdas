@@ -93,30 +93,73 @@ def backlog():
     
     pending_requirements = db.get_pending_requirements()
     inventarios_cabuyas = db.get_inventarios_cabuyas()
+    rewinder_configs = db.get_rewinder_denier_configs()
+    
+    # Calculate Kg/h for each denier in rewinder config
+    kgh_map = {}
+    for cfg in rewinder_configs:
+        tm_min = cfg.get('tm_minutos', 0)
+        if tm_min > 0:
+            kgh_map[str(cfg['denier'])] = (60 / tm_min) * 0.8
+        else:
+            kgh_map[str(cfg['denier'])] = 0
+
+    # Build cabuya lookup for manual orders
+    cabuya_lookup = {c['codigo']: c for c in inventarios_cabuyas}
     
     # Process "Automatic" requirements
     backlog_list = []
     for req in pending_requirements:
+        kg_req = abs(req['requerimientos'] or 0)
+        # Determine denier name
+        d_val = req.get('denier')
+        if d_val is not None:
+            d_name = str(int(d_val)) if isinstance(d_val, (int, float)) else str(d_val)
+        else:
+            d_name = infer_denier_from_description(req.get('descripcion'))
+        
+        # Calculate h_proceso
+        kgh = kgh_map.get(d_name, 0)
+        h_proceso = kg_req / kgh if kgh > 0 else 0
+        
         backlog_list.append({
             'codigo': req['codigo'],
             'descripcion': req['descripcion'],
-            'requerimientos': abs(req['requerimientos'] or 0),
+            'requerimientos': kg_req,
             'prioridad': req.get('prioridad', False),
-            'origen': 'Automatico'
+            'origen': 'Automatico',
+            'h_proceso': h_proceso
         })
     
     # Process "Manual" requirements from orders
     for o in orders:
         if o.get('cabuya_codigo'):
+            kg_pending = o['total_kg']
+            codigo = o['cabuya_codigo']
+            
+            # Lookup denier from cabuya info
+            cabuya_info = cabuya_lookup.get(codigo, {})
+            d_val = cabuya_info.get('denier')
+            if d_val is not None:
+                d_name = str(int(d_val)) if isinstance(d_val, (int, float)) else str(d_val)
+            else:
+                d_name = infer_denier_from_description(cabuya_info.get('descripcion'))
+            
+            # Calculate h_proceso
+            kgh = kgh_map.get(d_name, 0)
+            h_proceso = kg_pending / kgh if kgh > 0 else 0
+
             backlog_list.append({
-                'codigo': o['cabuya_codigo'],
+                'codigo': codigo,
                 'descripcion': '(Pedido Manual)',
-                'requerimientos': o['total_kg'],
+                'requerimientos': kg_pending,
                 'prioridad': True,
-                'origen': 'Manual'
+                'origen': 'Manual',
+                'h_proceso': h_proceso
             })
 
     total_pending_kg = sum(req['requerimientos'] for req in backlog_list)
+    total_h_proceso = sum(req['h_proceso'] for req in backlog_list)
     
     return render_template('backlog.html', 
                          active_page='backlog', 
@@ -125,7 +168,8 @@ def backlog():
                          deniers=deniers, 
                          backlog_list=backlog_list,
                          inventarios_cabuyas=inventarios_cabuyas,
-                         total_pending_kg=total_pending_kg)
+                         total_pending_kg=total_pending_kg,
+                         total_h_proceso=total_h_proceso)
 
 @app.route('/backlog/add', methods=['POST'])
 def add_backlog():
@@ -140,7 +184,11 @@ def add_backlog():
         if product:
             denier_val = product.get('denier')
             if denier_val:
-                denier_name = str(int(denier_val))
+                # Handle alphanumeric deniers like "12000 EXPO"
+                if isinstance(denier_val, (int, float)):
+                    denier_name = str(int(denier_val))
+                else:
+                    denier_name = str(denier_val)
             else:
                 denier_name = infer_denier_from_description(product.get('descripcion'))
             
@@ -218,8 +266,11 @@ def api_generate_schedule():
         # Column 'denier' is a float (e.g. 2000.0, 18000.0) or null
         denier_val = req.get('denier')
         if denier_val is not None:
-            # Convert float to string to match deniers table name format
-            d_name = str(int(denier_val))
+            # Handle alphanumeric deniers like "12000 EXPO"
+            if isinstance(denier_val, (int, float)):
+                d_name = str(int(denier_val))
+            else:
+                d_name = str(denier_val)
         else:
             # Try to infer denier from description (e.g. '12x1K' -> '12000')
             d_name = infer_denier_from_description(req.get('descripcion'))
