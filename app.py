@@ -279,11 +279,17 @@ def api_generate_schedule():
             # Skip products where we can't determine the denier
             continue
         
+        # Calculate h_proceso (hours on 1 post) for this reference
+        rw_cap = sc_data['rewinder_capacities'].get(d_name, {})
+        rw_rate = rw_cap.get('kg_per_hour', 0)
+        h_proceso = kg_req / rw_rate if rw_rate > 0 else 0
+        
         backlog_summary[codigo] = {
             'description': req.get('descripcion', ''),
             'kg_total': kg_req,
             'is_priority': req.get('prioridad', False),
-            'denier': d_name
+            'denier': d_name,
+            'h_proceso': h_proceso
         }
     
     # Also add manual orders (if any have cabuya_codigo set)
@@ -304,11 +310,16 @@ def api_generate_schedule():
             # Don't double count - automatic requirement already covers this
             pass
         else:
+            rw_cap = sc_data['rewinder_capacities'].get(d_name, {})
+            rw_rate = rw_cap.get('kg_per_hour', 0)
+            h_proceso = kg_pending / rw_rate if rw_rate > 0 else 0
+            
             backlog_summary[codigo] = {
                 'description': '(Pedido Manual)',
                 'kg_total': kg_pending,
                 'is_priority': True,
-                'denier': d_name
+                'denier': d_name,
+                'h_proceso': h_proceso
             }
 
     result = generate_production_schedule(
