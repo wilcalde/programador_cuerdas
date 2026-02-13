@@ -156,42 +156,9 @@
                 </div>
             </div>
 
-            <h2 style="margin: 2rem 0 1rem;">🏗️ Requerimientos de Materia Prima (Extrusión)</h2>
-            <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #FACC15;">
-                <p style="margin-bottom: 1rem; font-size: 0.9rem; color: #94A3B8;">Detalle diario de kilos por referencia requeridos para abastecer la línea de torsión.</p>
-                <div style="overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                        <thead>
-                            <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
-                                <th style="padding: 0.75rem;">Fecha</th>
-                                <th style="padding: 0.75rem;">Referencia</th>
-                                <th style="padding: 0.75rem;">Descripción</th>
-                                <th style="padding: 0.75rem;">Cantidad Requerida</th>
-                            </tr>
-                        </thead>
-                        <tbody>
             `;
-
-            scenario.cronograma_diario.forEach(dia => {
-                if (dia.requerimiento_abastecimiento && dia.requerimiento_abastecimiento.balance_por_referencia) {
-                    dia.requerimiento_abastecimiento.balance_por_referencia.forEach((b, idx) => {
-                        html += `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <td style="padding: 0.75rem;">${idx === 0 ? `<strong>${dia.fecha}</strong>` : ''}</td>
-                                <td style="padding: 0.75rem;">${b.referencia}</td>
-                                <td style="padding: 0.75rem; font-size: 0.85rem; color: #CBD5E1;">${b.descripcion || ''}</td>
-                                <td style="padding: 0.75rem; font-weight: 700; color: #10B981;">${Math.round(b.kg_suministro).toLocaleString()} kg</td>
-                            </tr>
-                        `;
-                    });
-                }
-            });
-
             html += `
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+
 
             <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
             <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #38BDF8;">
@@ -298,45 +265,7 @@
                 }
 
                 html += `
-                    <h4 style="color: #FACC15; margin-bottom: 0.75rem;"><i class="bi bi-supply"></i> Requerimiento de Suministro (Torcedoras T11-T16)</h4>
-                    <div style="overflow-x: auto; padding: 0.5rem; background: rgba(0,0,0,0.1); border-radius: 8px;">
-                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
-                            <thead>
-                                <tr style="color: #FACC15; border-bottom: 1px solid rgba(250, 204, 21, 0.2);">
-                                    <th style="padding: 0.5rem;">Máquina</th>
-                                    <th style="padding: 0.5rem;">Referencia</th>
-                                    <th style="padding: 0.5rem;">Descripción</th>
-                                    <th style="padding: 0.5rem;">Turno</th>
-                                    <th style="padding: 0.5rem;">Horas Requeridas</th>
-                                    <th style="padding: 0.5rem;">Aporte Estimado (Kg)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
 
-                if (dia.requerimiento_abastecimiento && dia.requerimiento_abastecimiento.detalle_torcedoras) {
-                    dia.requerimiento_abastecimiento.detalle_torcedoras.forEach(t => {
-                        html += `
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                                <td style="padding: 0.5rem;">${t.maquina}</td>
-                                <td style="padding: 0.5rem;">${t.ref}</td>
-                                <td style="padding: 0.5rem; font-size: 0.85rem; color: #CBD5E1;">${t.descripcion || ''}</td>
-                                <td style="padding: 0.5rem; font-weight: 600;">${t.turno || '-'}</td>
-                                <td style="padding: 0.5rem;">${t.horas} h</td>
-                                <td style="padding: 0.5rem; color: #10B981;">+${Math.round(t.kg_aportados)} kg</td>
-                            </tr>
-                        `;
-                    });
-                }
-
-                html += `
-                            </tbody>
-                        </table>
-                        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: #94A3B8; text-align: right;">
-                             Demanda Total del Día: <strong>${Math.round(dia.requerimiento_abastecimiento.kg_totales_demandados)} kg</strong> 
-                             | Horas de Pumping: <strong>${dia.requerimiento_abastecimiento.horas_produccion_conjunta} h</strong>
-                        </div>
-                    </div>
 
                     <h4 style="color: #38BDF8; margin: 1rem 0 0.5rem; font-size: 0.9rem;"><i class="bi bi-scale"></i> Balance de Masa por Referencia</h4>
                     <div style="overflow-x: auto;">
@@ -507,26 +436,26 @@
         const pageHeight = doc.internal.pageSize.getHeight();
 
         const colors = {
-            bg: [255, 255, 255],      
-            text: [15, 23, 42],       
-            muted: [100, 116, 139],   
-            accent: [59, 130, 246],   
+            bg: [255, 255, 255],
+            text: [15, 23, 42],
+            muted: [100, 116, 139],
+            accent: [59, 130, 246],
             headerBg: [255, 255, 255],
-            cardBg: [248, 250, 252],  
-            border: [226, 232, 240]   
+            cardBg: [248, 250, 252],
+            border: [226, 232, 240]
         };
 
         const drawHeader = (d) => {
             d.setFillColor(...colors.bg);
             d.rect(0, 0, pageWidth, 80, 'F');
-            
+
             d.setTextColor(...colors.text);
             d.setFontSize(18); d.setFont("helvetica", "bold");
             d.text("Plan de Producción Cabuyas Linea Cordeleria", 40, 45);
-            
+
             d.setFontSize(10); d.setFont("helvetica", "normal"); d.setTextColor(...colors.muted);
             d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
-            
+
             d.setDrawColor(...colors.border);
             d.line(40, 75, pageWidth - 40, 75);
         };
@@ -550,7 +479,7 @@
         let workingDaysCount = 0;
         if (currentPlan.cronograma_diario) {
             currentPlan.cronograma_diario.forEach(day => {
-                const dateObj = new Date(day.fecha + 'T00:00:00'); 
+                const dateObj = new Date(day.fecha + 'T00:00:00');
                 if (dateObj.getDay() !== 0) {
                     workingDaysCount++;
                 }
@@ -566,14 +495,14 @@
         doc.setFontSize(10); doc.setTextColor(...colors.muted); doc.setFont("helvetica", "bold");
         doc.text("Días Trabajados (Sin Domingos)", 40, yPos);
         doc.text("Total Kg en el Plan", 250, yPos);
-        
+
         yPos += 20;
 
         // Metric Values
         doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
         doc.text(displayedDays.toString(), 40, yPos);
         doc.text((currentPlan.resumen_global.kg_totales_plan?.toLocaleString() || '0') + " kg", 250, yPos);
-        
+
         yPos += 30;
 
         // Chart 1: Resource Chart (Kg & Personnel)
@@ -609,7 +538,7 @@
                 if (dia.turnos && dia.turnos.length > 0) {
                     dia.turnos.forEach(turno => {
                         checkNewPage(80);
-                        
+
                         doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
                         doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
                         yPos += 10;
@@ -626,25 +555,25 @@
                             startY: yPos,
                             head: [['Referencia', 'Descripción', 'Puestos', 'Operarios', 'Producción (8h)']],
                             body: tableRows,
-                            theme: 'plain', 
-                            headStyles: { 
-                                fillColor: [240, 240, 240], 
-                                textColor: [0, 0, 0], 
+                            theme: 'plain',
+                            headStyles: {
+                                fillColor: [240, 240, 240],
+                                textColor: [0, 0, 0],
                                 fontStyle: 'bold',
                                 lineWidth: 0.5,
                                 lineColor: [200, 200, 200]
                             },
-                            styles: { 
-                                fontSize: 9, 
+                            styles: {
+                                fontSize: 9,
                                 textColor: [50, 50, 50],
                                 cellPadding: 4,
                                 lineColor: [230, 230, 230],
-                                lineWidth: 0.5 
+                                lineWidth: 0.5
                             },
-                            theme: 'grid', 
+                            theme: 'grid',
                             columnStyles: {
-                                0: { fontStyle: 'bold' }, 
-                                4: { halign: 'right' }    
+                                0: { fontStyle: 'bold' },
+                                4: { halign: 'right' }
                             },
                             margin: { left: 40, right: 40 }
                         });
@@ -656,7 +585,7 @@
                     doc.text("Sin producción programada (Domingo o Festivo)", 40, yPos);
                     yPos += 20;
                 }
-                yPos += 10; 
+                yPos += 10;
             });
         }
 
@@ -666,9 +595,9 @@
         doc.text("Resumen por Referencia (Terminación)", 40, yPos); yPos += 20;
 
         const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [
-            r.referencia, 
-            r.descripcion || '', 
-            r.fecha_finalizacion, 
+            r.referencia,
+            r.descripcion || '',
+            r.fecha_finalizacion,
             Math.round(r.kg_totales).toLocaleString() + " kg"
         ]);
 
@@ -677,8 +606,8 @@
             head: [['Referencia', 'Descripción', 'Fecha Terminación', 'Total Kg']],
             body: sumRows,
             theme: 'grid',
-            headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', lineColor: [200,200,200], lineWidth: 0.5 },
-            styles: { fontSize: 9, textColor: [50,50,50], lineColor: [230,230,230], lineWidth: 0.5 },
+            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [200, 200, 200], lineWidth: 0.5 },
+            styles: { fontSize: 9, textColor: [50, 50, 50], lineColor: [230, 230, 230], lineWidth: 0.5 },
             columnStyles: { 3: { halign: 'right' } },
             margin: { left: 40, right: 40 }
         });
