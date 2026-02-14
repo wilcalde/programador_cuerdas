@@ -251,7 +251,7 @@ def assign_shift_greedy(
                             posts_remaining -= p
                             break
 
-    # === PASS 3: FORCE FILLER (lo más importante) ===
+    # === PASS 3: FORCE FILLER ===
     if posts_remaining > 0:
         # Ordenamos refs por tamaño de bloque más pequeño primero (para rellenar huecos)
         filler_candidates = sorted(candidates, key=lambda x: min(x['item']['valid_posts'] or [999]))
@@ -261,7 +261,7 @@ def assign_shift_greedy(
             item = cand['item']
             valid_for_remaining = [p for p in item['valid_posts'] if p <= posts_remaining]
             
-            for p in sorted(valid_for_remaining):          # de pequeño a grande
+            for p in sorted(valid_for_remaining):  # de pequeño a grande
                 target = p * item['rw_rate']
                 temp_status = machine_status.copy()
                 
@@ -272,7 +272,7 @@ def assign_shift_greedy(
                     supply = sum(m['kg_turno'] for m in assigned_m)
                     consumption = p * item['rw_rate'] * shift_duration
                     
-                    # Tolerancia más amplia en filler (aceptamos desbalance si llena puestos)
+                    # Tolerancia más amplia en filler
                     if 0.65 <= (supply / consumption) <= 1.35 if consumption > 0 else True:
                         rewinder_assignments.append({
                             'ref': item['ref'],
@@ -306,7 +306,7 @@ def _assign_machines_for_ref_balanced(denier, target_kgh, torsion_capacities, ma
     current_kgh = 0.0
 
     for m in machines:
-        if current_kgh >= target_kgh * 1.05:          # Permite hasta 5% overshoot
+        if current_kgh >= target_kgh * 1.05:  # Permite hasta 5% overshoot
             break
             
         m_id = m['machine_id']
@@ -314,9 +314,7 @@ def _assign_machines_for_ref_balanced(denier, target_kgh, torsion_capacities, ma
             
         # Partial husos inteligente
         ratio = min(1.0, needed / m['kgh'])
-        husos_asignados = math.ceil(ratio * m['husos'])
-        if husos_asignados < 1: husos_asignados = 1
-        
+        husos_asignados = max(1, math.ceil(ratio * m['husos']))
         kgh_asignado = (husos_asignados / m['husos']) * m['kgh']
         
         selected.append({
