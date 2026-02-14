@@ -170,7 +170,7 @@ class DBQueries:
                 try:
                     # Use split to get the first numeric part
                     denier_val = float(denier_name.split(' ')[0])
-                    kgh = get_get_kgh_torsion(
+                    kgh = get_kgh_torsion(
                         denier=denier_val,
                         rpm=config['rpm'],
                         torsiones_metro=config['torsiones_metro'],
