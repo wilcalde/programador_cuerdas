@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS machine_denier_config (
 CREATE INDEX IF NOT EXISTS idx_machine_denier_config_machine_id 
 ON machine_denier_config(machine_id);
 
--- Add trigger to update updated_at timestamp
+-- Add RLS policies if using Row Level Security
+-- ALTER TABLE machine_denier_config ENABLE ROW LEVEL SECURITY;
+
+-- Optional: Add trigger to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
