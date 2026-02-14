@@ -189,7 +189,7 @@ def assign_shift_greedy(
                     machine_status = temp_status
                     posts_remaining -= p
                     break
-
+ 
     # --- Pass 2: Upgrade Existing or Add New (Exhaustive Fill) ---
     if posts_remaining > 0:
         for cand in candidates:
@@ -250,67 +250,95 @@ def assign_shift_greedy(
                             machine_status = temp_status
                             posts_remaining -= p
                             break
+
+    # === PASS 3: FORCE FILLER (lo más importante) ===
+    if posts_remaining > 0:
+        # Ordenamos refs por tamaño de bloque más pequeño primero (para rellenar huecos)
+        filler_candidates = sorted(candidates, key=lambda x: min(x['item']['valid_posts'] or [999]))
+        
+        for cand in filler_candidates:
+            if posts_remaining <= 0: break
+            item = cand['item']
+            valid_for_remaining = [p for p in item['valid_posts'] if p <= posts_remaining]
+            
+            for p in sorted(valid_for_remaining):          # de pequeño a grande
+                target = p * item['rw_rate']
+                temp_status = machine_status.copy()
+                
+                assigned_m = _assign_machines_for_ref_balanced(
+                    item['denier'], target, torsion_capacities, temp_status, shift_duration
+                )
+                if assigned_m:
+                    supply = sum(m['kg_turno'] for m in assigned_m)
+                    consumption = p * item['rw_rate'] * shift_duration
+                    
+                    # Tolerancia más amplia en filler (aceptamos desbalance si llena puestos)
+                    if 0.65 <= (supply / consumption) <= 1.35 if consumption > 0 else True:
+                        rewinder_assignments.append({
+                            'ref': item['ref'],
+                            'descripcion': item['descripcion'],
+                            'denier': item['denier'],
+                            'puestos': p,
+                            'operarios': math.ceil(p / item['n_optimo']),
+                            'kg_producidos': consumption,
+                            'rw_rate_total': target
+                        })
+                        torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_m])
+                        machine_status = temp_status
+                        posts_remaining -= p
+                        break
+
     return rewinder_assignments, torsion_assignments, posts_remaining
 
 def _assign_machines_for_ref_balanced(denier, target_kgh, torsion_capacities, machine_status, shift_duration):
-    """
-    Tries to find machines to match target_kgh exactly by using partial husos if needed.
-    """
-    if target_kgh <= 0: return []
-    
-    cap_data = torsion_capacities.get(denier, {})
-    # Machines not fully occupied. 
-    # To support partial assignment, machine_status should track remaining husos.
-    # For now, let's keep it simple: only one ref per machine, but we can use fewer husos.
-    available_machines = [m for m in cap_data.get('machines', []) if m['machine_id'] not in machine_status]
-    if not available_machines:
+    """Versión mejorada: más tolerante y permite parciales reales sin rollback agresivo"""
+    if target_kgh <= 0:
         return []
-        
-    machines = sorted(available_machines, key=lambda x: x['kgh'], reverse=True)
+
+    cap_data = torsion_capacities.get(denier, {})
+    available = [m for m in cap_data.get('machines', []) if m['machine_id'] not in machine_status]
+    if not available:
+        return []
+
+    machines = sorted(available, key=lambda x: x['kgh'], reverse=True)
     
     selected = []
-    current_kgh = 0
-    
+    current_kgh = 0.0
+
     for m in machines:
-        if current_kgh >= target_kgh: break
-        
-        m_id = m['machine_id']
-        m_max_kgh = m['kgh']
-        m_total_husos = m['husos']
-        
-        needed_kgh = target_kgh - current_kgh
-        
-        if m_max_kgh <= needed_kgh:
-            # Use full machine
-            assigned_husos = m_total_husos
-            assigned_kgh = m_max_kgh
-        else:
-            # Use partial machine to match exactly
-            assigned_husos = math.ceil((needed_kgh / m_max_kgh) * m_total_husos)
-            # Ensure we don't exceed total
-            assigned_husos = min(assigned_husos, m_total_husos)
-            assigned_kgh = (assigned_husos / m_total_husos) * m_max_kgh
+        if current_kgh >= target_kgh * 1.05:          # Permite hasta 5% overshoot
+            break
             
-        machine_status[m_id] = True # Mark as used (we don't split machines between references yet)
-        current_kgh += assigned_kgh
+        m_id = m['machine_id']
+        needed = target_kgh - current_kgh
+            
+        # Partial husos inteligente
+        ratio = min(1.0, needed / m['kgh'])
+        husos_asignados = math.ceil(ratio * m['husos'])
+        if husos_asignados < 1: husos_asignados = 1
+        
+        kgh_asignado = (husos_asignados / m['husos']) * m['kgh']
+        
         selected.append({
             'maquina': m_id,
             'denier': denier,
-            'husos_asignados': assigned_husos,
-            'husos_totales': m_total_husos,
-            'kgh_maquina': assigned_kgh,
-            'kg_turno': assigned_kgh * shift_duration,
+            'husos_asignados': husos_asignados,
+            'husos_totales': m['husos'],
+            'kgh_maquina': round(kgh_asignado, 2),
+            'kg_turno': round(kgh_asignado * shift_duration, 1),
             'operarios': 1
         })
-            
-    # Check if we met the demand (within 5% tolerance)
-    if current_kgh >= target_kgh * 0.95:
-        return selected
-    else:
-        # Rollback
+        machine_status[m_id] = True
+        current_kgh += kgh_asignado
+
+    # Si no llegó ni al 70% del target, rollback (evita refs con muy poca producción)
+    if current_kgh < target_kgh * 0.70 and selected:
         for s in selected:
-            if s['maquina'] in machine_status: del machine_status[s['maquina']]
+            if s['maquina'] in machine_status:
+                del machine_status[s['maquina']]
         return []
+    
+    return selected
 
 def _assign_machines_for_ref(denier, target_kgh, torsion_capacities, machine_status, shift_duration):
     """
