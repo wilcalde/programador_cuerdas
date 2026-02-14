@@ -1,81 +1,92 @@
-import unittest
+import sys
+import os
+
+# Add the project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from integrations.openai_ia import assign_shift_greedy
+import math
 
-class TestMassBalance(unittest.TestCase):
-    def test_strict_mass_balance(self):
-        # Mock Data
-        # Reference 6000 Denier
-        # Torsion Capacity: ~500 kg/h total (simulated)
-        # Rewinder: 8 posts * ~106 kg/post = ~850 kg/shift
-        
-        # Mock Torsion Capacities
-        torsion_capacities = {
-            "6000": {
-                "total_kgh": 62.5, # 62.5 * 8h = 500 kg per shift
-                "machines": [
-                    {"machine_id": "T1", "kgh": 31.25, "husos": 100},
-                    {"machine_id": "T2", "kgh": 31.25, "husos": 100}
-                ]
-            }
+def test_mass_balance_enforcement():
+    """
+    Test that Rewinder consumption does not exceed Torsion supply significantly.
+    Scenario:
+    - Denier: 6000
+    - Torsion Capacity for 6000: 500 kg/shift (mocked)
+    - Rewinder Consumption per post: 106.37 kg/shift (mocked)
+    - N Optimo: 3 posts
+    - Valid posts: [3, 4, 5, 6, 7, 8, ...]
+    
+    Previous behavior:
+    - Might assign 8 posts (851 kg consumption) regardless of 500 kg supply.
+    
+    Fixed behavior:
+    - Should limit to a maximum of 5 posts (531.85 kg) because 500/531.85 = 94% (> 90% threshold).
+    - 6 posts would be 638kg, 500/638 = 78% (< 90% threshold).
+    """
+    
+    # Mock data
+    backlog = [
+        {
+            'ref': 'REF-TEST',
+            'descripcion': 'Test Reference',
+            'denier': '6000',
+            'kg_pendientes': 2000,
+            'kg_total_inicial': 2000,
+            'rw_rate': 13.296, # kg/h -> ~106.37 kg per 8h shift
+            'n_optimo': 3,
+            'valid_posts': [3, 4, 5, 6, 7, 8]
         }
+    ]
+    
+    # Mock Torsion capacity: 1 machine of 62.5 kg/h -> 500 kg per 8h shift
+    torsion_capacities = {
+        '6000': {
+            'total_kgh': 62.5,
+            'machines': [
+                {'machine_id': 'T-6000', 'kgh': 62.5, 'husos': 16}
+            ]
+        }
+    }
+    
+    shift_duration = 8
+    
+    # Run assignment
+    rw_assigns, tor_assigns = assign_shift_greedy(
+        backlog,
+        28,
+        torsion_capacities,
+        shift_duration
+    )
+    
+    print("\n--- TEST RESULTS ---")
+    if rw_assigns:
+        a = rw_assigns[0]
+        consumption = a['puestos'] * 13.296 * 8
+        supply = sum(t['kg_turno'] for t in tor_assigns)
         
-        # Mock Backlog
-        # Low N_optimo (e.g., 1) to allow flexible post counts
-        # User Report: 8 posts = 851 kg in 8 hours.
-        # Rate per post per hour = 851 / 8 / 8 = 13.296 kg/h
-        rw_rate = 13.3 
+        print(f"Ref: {a['referencia']}")
+        print(f"Posts Assigned: {a['puestos']}")
+        print(f"Rewinder Consumption: {consumption:.2f} kg")
+        print(f"Torsion Supply: {supply:.2f} kg")
         
-        backlog = [{
-            "ref": "CAB00629",
-            "descripcion": "RAFIA 6000",
-            "denier": "6000",
-            "kg_pendientes": 5000,
-            "kg_total_inicial": 5000,
-            "is_priority": True,
-            "rw_rate": rw_rate, 
-            "n_optimo": 1, 
-            "valid_posts": [1, 2, 3, 4, 5, 6, 7, 8] # All valid
-        }]
+        # Assertion: Supply must be at least 90% of consumption
+        assert supply >= (consumption * 0.9), f"Imbalance: Supply {supply} < 90% of Consumption {consumption}"
         
-        # Execute Greedy Assignment
-        print("\n--- Testing Strict Mass Balance ---")
-        rw_assigns, tor_assigns = assign_shift_greedy(
-            backlog,
-            rewinder_posts_limit=28, # Plenty of space
-            torsion_capacities=torsion_capacities,
-            shift_duration=8
-        )
-        
-        # Verification
-        if not rw_assigns:
-            print("No assignment made!")
-            return
+        # Specific check for this scenario: should be exactly 5 posts
+        # (Since 6 posts = 638kg vs 500kg supply is ~78%)
+        assert a['puestos'] <= 5, f"Should not assign more than 5 posts, assigned {a['puestos']}"
+        print("✅ Mass Balance Test Passed!")
+    else:
+        print("❌ No assignments made.")
+        assert False
 
-        assign = rw_assigns[0]
-        posts = assign['puestos']
-        kg_produced_rew = assign['kg_producidos']
-        
-        kg_torsion_supplied = sum(t['kg_turno'] for t in tor_assigns)
-        
-        print(f"Assigned Posts: {posts}")
-        print(f"Rewinder Consumption: {kg_produced_rew:.2f} kg")
-        print(f"Torsion Supply: {kg_torsion_supplied:.2f} kg")
-        
-        # Constraint Check
-        # supply should be >= consumption * 0.9
-        balance_ratio = kg_torsion_supplied / kg_produced_rew if kg_produced_rew > 0 else 0
-        print(f"Balance Ratio: {balance_ratio:.2f}")
-
-        # In the BUGGY version, this was 0.58 (497/851). 
-        # In the FIXED version, posts should reduce to ~4 or 5 to match 500kg.
-        # 5 posts * 106.375 * 8 = 4255 ?? No wait.
-        # Rate per hour per post = 106.375 / 8 = 13.29 kg/h
-        # 4 posts * 13.29 * 8 = 425 kg. 
-        # 5 posts * 13.29 * 8 = 531 kg. (Exceeds 500)
-        # So it should pick 4 posts (425 kg) which is covered by 500kg supply. 
-        
-        self.assertGreaterEqual(kg_torsion_supplied, kg_produced_rew * 0.9, 
-                                f"Mass Balance Violation! Supply {kg_torsion_supplied} < 90% of Consumption {kg_produced_rew}")
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == "__main__":
+    try:
+        test_mass_balance_enforcement()
+    except AssertionError as e:
+        print(f"❌ Test Failed: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Unexpected Error: {e}")
+        sys.exit(1)
