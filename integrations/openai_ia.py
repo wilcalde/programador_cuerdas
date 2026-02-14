@@ -229,13 +229,30 @@ def assign_shift_greedy(
         # Simplified Greedy: Taking best fit for now.
         
         if best_p > 0:
+            # TRY Torsion first (Dry Run)
+            target_prod = best_p * rw_rate_per_post
+            temp_status = machine_status.copy()
+            assigned_machines = _assign_machines_for_ref(
+                denier, 
+                target_prod, 
+                torsion_capacities, 
+                temp_status, 
+                shift_duration
+            )
+            
+            # If NO torsion machine could be assigned, skip this rewinder assignment
+            if not assigned_machines:
+                continue
+                
+            # Commit Status
+            machine_status = temp_status
+            torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
+
             operarios = math.ceil(best_p / item['n_optimo'])
             kg_consumption = best_p * rw_rate_per_post * shift_duration
             
             # Limit by pending
             if kg_consumption > item['kg_pendientes']:
-                 # If we are finishing the reference, we might not need all hours or all posts
-                 # But for simplification, we just cap the Kg and keep posts for the shift
                  pass
 
             rewinder_assignments.append({
@@ -244,25 +261,11 @@ def assign_shift_greedy(
                 'denier': denier,
                 'puestos': best_p,
                 'operarios': operarios,
-                'kg_producidos': kg_consumption, # Estimated consumption
+                'kg_producidos': kg_consumption, 
                 'rw_rate_total': best_p * rw_rate_per_post
             })
             
             posts_remaining -= best_p
-            
-            # Assign Torsion Machines for this Reference
-            # Goal: Production >= Consumption
-            target_prod = best_p * rw_rate_per_post # Kg/h target
-            
-            assigned_machines = _assign_machines_for_ref(
-                denier, 
-                target_prod, 
-                torsion_capacities, 
-                machine_status, 
-                shift_duration
-            )
-            
-            torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
 
     # Pass 2: Fill remaining posts (if any) with next available refs
     # Even if their max_torsion_rate is low, we need to fill 28 posts?
@@ -281,6 +284,24 @@ def assign_shift_greedy(
            possible = [p for p in valid_posts if p <= posts_remaining]
            if possible:
                p = max(possible)
+               
+               # TRY Torsion first
+               target_prod = p * item['rw_rate']
+               temp_status = machine_status.copy()
+               assigned_machines = _assign_machines_for_ref(
+                    item['denier'], 
+                    target_prod, 
+                    torsion_capacities, 
+                    temp_status, 
+                    shift_duration
+                )
+               
+               if not assigned_machines:
+                   continue
+               
+               machine_status = temp_status
+               torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
+               
                operarios = math.ceil(p / item['n_optimo'])
                kg_consumption = p * item['rw_rate'] * shift_duration
                
@@ -294,17 +315,6 @@ def assign_shift_greedy(
                     'rw_rate_total': p * item['rw_rate']
                })
                posts_remaining -= p
-               
-               # Assign Torsion (Best Effort)
-               target_prod = p * item['rw_rate']
-               assigned_machines = _assign_machines_for_ref(
-                    item['denier'], 
-                    target_prod, 
-                    torsion_capacities, 
-                    machine_status, 
-                    shift_duration
-                )
-               torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
 
     return rewinder_assignments, torsion_assignments
 

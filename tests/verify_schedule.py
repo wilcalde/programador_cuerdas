@@ -1,24 +1,30 @@
 import sys
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
-# Add project root to path
+# Add parent directory to path to import app modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from integrations.openai_ia import generate_production_schedule
 
-def test_schedule_generation():
+def run_test():
     print("Running Schedule Verification...")
-
-    # 1. Mock Data
-    orders = [] # Not used directly if backlog_summary is provided, but passed for structure
     
+    # Mock Data
+    orders = [] # Not used in greedy V4 directly (uses backlog_summary)
+    
+    # Rewinder Capabilities (Kg/h per post, N_optimo)
+    # Ref 1: 6000 Denier -> 10 Kg/h per post, 7 posts/op
+    # Ref 2: 12000 Denier -> 20 Kg/h per post, 5 posts/op
     rewinder_capacities = {
         "6000": {"kg_per_hour": 10.0, "n_optimo": 7},
         "12000": {"kg_per_hour": 20.0, "n_optimo": 5}
     }
     
+    # Torsion Capacities (Total available Kg/h for that denier)
+    # Ref 1: 6000 -> Max 100 Kg/h (e.g. 2 machines * 50)
+    # Ref 2: 12000 -> Max 150 Kg/h (e.g. 3 machines * 50)
     torsion_capacities = {
         "6000": {
             "total_kgh": 100.0,
@@ -30,16 +36,12 @@ def test_schedule_generation():
         "12000": {
             "total_kgh": 150.0,
             "machines": [
-                {"machine_id": "T16", "kgh": 150.0, "husos": 120}
+                {"machine_id": "T01", "kgh": 50.0, "husos": 100},
+                {"machine_id": "T02", "kgh": 50.0, "husos": 100},
+                {"machine_id": "T03", "kgh": 50.0, "husos": 100}
             ]
         }
     }
-    
-    shifts = [
-        {"date": "2023-10-27", "working_hours": 24},
-        {"date": "2023-10-28", "working_hours": 24},
-        {"date": "2023-10-29", "working_hours": 24}
-    ]
     
     # Backlog Summary (The logic input)
     # Ref 1: High pending, requires 6000 denier
@@ -63,50 +65,52 @@ def test_schedule_generation():
     
     # 2. Run Scheduling
     try:
+        shifts = [
+            {"date": "2023-10-27", "working_hours": 24},
+            {"date": "2023-10-28", "working_hours": 24},
+            {"date": "2023-10-29", "working_hours": 24}
+        ]
+        
         result = generate_production_schedule(
-            orders=orders,
-            rewinder_capacities=rewinder_capacities,
+            orders, 
+            rewinder_capacities,
             total_rewinders=28,
             shifts=shifts,
             torsion_capacities=torsion_capacities,
             backlog_summary=backlog_summary,
-            strategy='priority'
+            strategy='greedy'
         )
         
-        # 3. Analyze Result
         scenario = result.get('scenario', {})
         daily = scenario.get('cronograma_diario', [])
         
-        print(f"\nGenerado {len(daily)} dias.")
-        print(f"Comentario: {scenario.get('resumen_global', {}).get('comentario_estrategia')}")
+        # 3. Analyze First Day/Shift
+        if not daily:
+            print("FAILED: No schedule generated.")
+            return
+
+        print(f"Total Days: {len(daily)}")
         
         for d in daily:
             print(f"\nFecha: {d['fecha']}")
             print("  Rewinder Shifts:")
             for t in d['turnos']:
-                ops = t['operarios_requeridos']
-                kg = sum(a['kg_producidos'] for a in t['asignaciones'])
-                posts = sum(a['puestos'] for a in t['asignaciones'])
-                print(f"    {t['nombre']}: {posts} puestos, {ops} ops, {kg:.1f} Kg")
+                print(f"    Shift {t['nombre']} ({t['horario']}): {t['operarios_requeridos']} Ops")
                 for a in t['asignaciones']:
-                    print(f"      - {a['referencia']} ({a['denier']}): {a['puestos']} puestos -> {a['kg_producidos']:.1f} Kg")
+                    print(f"      - {a['referencia']} ({a['denier']}): {a['puestos']} posts, {a['kg_producidos']} Kg")
             
             print("  Torsion Shifts:")
             for t in d['turnos_torsion']:
-                ops = t['operarios_requeridos']
-                kg = sum(a['kg_turno'] for a in t['asignaciones'])
-                print(f"    {t['nombre']}: {len(t['asignaciones'])} asignaciones, {kg:.1f} Kg")
-                for a in t['asignaciones']:
-                    print(f"      - {a['maquina']} -> {a['referencia']}: {a['kg_turno']:.1f} Kg ({a['husos_asignados']}/{a['husos_totales']} husos)")
-                    
+                 print(f"    Shift {t['nombre']}: {len(t['asignaciones'])} asignaciones")
+                 for a in t['asignaciones']:
+                     print(f"      - {a['maquina']} -> {a['referencia']} ({a['kgh_maquina']} Kg/h)")
+
         print("\nTest Passed Successfully.")
-        return True
         
     except Exception as e:
-        print(f"\nFAILED: {e}")
+        print(f"FAILED with error: {e}")
         import traceback
         traceback.print_exc()
-        return False
 
 if __name__ == "__main__":
-    test_schedule_generation()
+    run_test()
