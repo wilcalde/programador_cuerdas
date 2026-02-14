@@ -124,13 +124,13 @@
                         <tr>
                             <td style="font-weight: 600;">{{ denier_name }}</td>
                             <td><input type="number" name="rpm_{{ denier_safe }}" class="input-field"
-                                     value="{{ config.rpm or 0 }}"
+                                    value="{{ config.rpm or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td><input type="number" name="torsiones_{{ denier_safe }}" class="input-field"
-                                     value="{{ config.torsiones_metro or 0 }}"
+                                    value="{{ config.torsiones_metro or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td><input type="number" name="husos_{{ denier_safe }}" class="input-field"
-                                     value="{{ config.husos or 0 }}"
+                                    value="{{ config.husos or 0 }}"
                                     onchange="calculateKgh(this, '{{ denier_name }}', '{{ machine.id }}')"></td>
                             <td>
                                 <span id="kgh-{{ machine.id }}-{{ denier_safe }}" class="metric-value"
