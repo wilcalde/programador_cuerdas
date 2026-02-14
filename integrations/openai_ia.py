@@ -208,29 +208,15 @@ def assign_shift_greedy(
              
         # Select best P
         # If this is a high priority bottleneck, valid posts should aim for Max Torsion Rate
+        # Sort possible_posts by closeness to max_torsion_rate
+        # We prefer p where Consumption ~= Max Torsion Rate
+        possible_posts.sort(key=lambda p: abs(max_rate - (p * rw_rate_per_post)))
+        
+        assigned_success = False
+        
         for p in possible_posts:
-            consumption = p * rw_rate_per_post
-            # We want consumption to be closests to max_rate, but preferably <= max_rate + small_tolerance
-            # If max_rate is gigantic, we just take max possible posts (limited by remaining)
-            
-            diff = abs(max_rate - consumption)
-            if diff < min_diff:
-                min_diff = diff
-                best_p = p
-                
-        # If we can't match rate (e.g. max_rate is huge but we have few posts), 
-        # we take the largest possible P to maximize throughput for this bottleneck.
-        # The logic above does this because diff will be smaller for larger consumption if consumption < max_rate
-        
-        # Check if we should fill the remainder?
-        # If this is the last candidate and we have posts left, force max possible?
-        # Or should we loop again?
-        # User Logic: "Si no suma 28 o no balancea, retrocede: Reduce máquinas en una ref y prueba."
-        # Simplified Greedy: Taking best fit for now.
-        
-        if best_p > 0:
             # TRY Torsion first (Dry Run)
-            target_prod = best_p * rw_rate_per_post
+            target_prod = p * rw_rate_per_post
             temp_status = machine_status.copy()
             assigned_machines = _assign_machines_for_ref(
                 denier, 
@@ -240,32 +226,41 @@ def assign_shift_greedy(
                 shift_duration
             )
             
-            # If NO torsion machine could be assigned, skip this rewinder assignment
+            # If NO torsion machine could be assigned, try next p
             if not assigned_machines:
                 continue
                 
+            # --- STRICT MASS BALANCE CHECK ---
+            kg_torsion_supply = sum(t['kg_turno'] for t in assigned_machines)
+            kg_consumption = p * rw_rate_per_post * shift_duration
+            
+            # Constraint: Torsion Supply must be at least 90% of Consumption
+            if kg_torsion_supply < kg_consumption * 0.9:
+                continue # Try next p
+            # ---------------------------------
+            
             # Commit Status
             machine_status = temp_status
             torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
 
-            operarios = math.ceil(best_p / item['n_optimo'])
-            kg_consumption = best_p * rw_rate_per_post * shift_duration
+            operarios = math.ceil(p / item['n_optimo'])
             
-            # Limit by pending
-            if kg_consumption > item['kg_pendientes']:
-                 pass
+            # Limit by pending (visual only, actual consumption tracked)
+            # if kg_consumption > item['kg_pendientes']: pass
 
             rewinder_assignments.append({
                 'ref': item['ref'],
                 'descripcion': item['descripcion'],
                 'denier': denier,
-                'puestos': best_p,
+                'puestos': p,
                 'operarios': operarios,
                 'kg_producidos': kg_consumption, 
-                'rw_rate_total': best_p * rw_rate_per_post
+                'rw_rate_total': p * rw_rate_per_post
             })
             
-            posts_remaining -= best_p
+            posts_remaining -= p
+            assigned_success = True
+            break # Stop after finding best valid p
 
     # Pass 2: Fill remaining posts (if any) with next available refs
     # Even if their max_torsion_rate is low, we need to fill 28 posts?
@@ -305,6 +300,14 @@ def assign_shift_greedy(
                operarios = math.ceil(p / item['n_optimo'])
                kg_consumption = p * item['rw_rate'] * shift_duration
                
+               # --- STRICT MASS BALANCE CHECK (Pass 2) ---
+               kg_torsion_supply = sum(t['kg_turno'] for t in assigned_machines)
+               if kg_torsion_supply < kg_consumption * 0.9:
+                   # Rollback
+                   machine_status = temp_status
+                   continue
+               # ------------------------------------------
+
                rewinder_assignments.append({
                     'ref': item['ref'],
                     'descripcion': item['descripcion'],
