@@ -126,262 +126,191 @@ def assign_shift_greedy(
     rewinder_posts_limit: int,
     torsion_capacities: Dict[str, Dict],
     shift_duration: float
-) -> Tuple[List[Dict], List[Dict]]:
+) -> Tuple[List[Dict], List[Dict], int]:
     """
-    Assign rewinder posts and torsion machines for a single shift using Greedy Heuristic.
-    
-    Prioritizes bottlenecks: References with highest (Pending Kg / Max Torsion Rate).
-    Ensures 28 rewinder posts are used if possible.
-    Matches Torsion production to Rewinder consumption.
-    
-    Returns:
-        (rewinder_assignments, torsion_assignments)
+    Assign rewinder posts and torsion machines for a single shift.
+    Refined to target 100% utilization (28 posts) and strict mass balance.
     """
     
-    # 1. Calculate Weights (Bottleneck Priority)
+    # 1. Weights (Bottleneck Priority)
     candidates = []
     for item in active_backlog:
         ref = item['ref']
         denier = item['denier']
         pending_kg = item['kg_pendientes']
+        initial_kg = item.get('kg_total_inicial', pending_kg)
+        max_rate = calculate_max_torsion_rate(denier, torsion_capacities)
         
-        # Max Torsion Capacity for this denier
-        max_torsion_rate = calculate_max_torsion_rate(denier, torsion_capacities)
+        # Priority favors deniers with more pending volume relative to capacity
+        weight = (pending_kg / initial_kg) * (pending_kg / (max_rate + 0.1))
+        candidates.append({'item': item, 'weight': weight, 'max_torsion_rate': max_rate})
         
-        # Weight = Pending Kg / Max Rate (Time to finish if dedicated)
-        # Avoid division by zero
-        if max_torsion_rate > 0:
-            weight = pending_kg / max_torsion_rate
-        else:
-            # If no torsion capacity, push to bottom or treat as pure stock processing? 
-            # For now, low priority.
-            weight = 0 
-            
-        candidates.append({
-            'item': item,
-            'weight': weight,
-            'max_torsion_rate': max_torsion_rate
-        })
-        
-    # Sort by Weight Descending
     candidates.sort(key=lambda x: x['weight'], reverse=True)
     
     rewinder_assignments = []
     torsion_assignments = []
-    
     posts_remaining = rewinder_posts_limit
-    
-    # Track machine usage for this shift to avoid double booking
-    # scheme: machine_id -> {occupied: bool, kgh_used: float}
-    machine_status = {} 
-    
-    # Pass 1: Rewinder Assignment & Torsion Matching
+    machine_status = {}
+
+    def _is_balanced(supply, consumption):
+        if consumption == 0: return True
+        # Allow slightly more tolerance for small batches to aid utilization
+        return 0.8 <= (supply / consumption) <= 1.2
+
+    # --- Pass 1: Initial Bottleneck Assignment ---
     for cand in candidates:
-        if posts_remaining <= 0:
-            break
-            
+        if posts_remaining <= 0: break
+        
         item = cand['item']
-        denier = item['denier']
-        max_rate = cand['max_torsion_rate']
-        valid_posts = item['valid_posts']
-        rw_rate_per_post = item['rw_rate']
+        valid = [p for p in item['valid_posts'] if p <= posts_remaining]
+        if not valid: continue
         
-        if not valid_posts or rw_rate_per_post <= 0:
-            continue
-            
-        # Target Consumption ~= Max Torsion Rate
-        # We want consumption <= production + tolerance, or simply match best fit
-        # Ideally, we want consumption to be *supported* by torsion. 
-        # So Consumption <= Max Torsion Rate is a safe constraint to avoid draining buffer?
-        # User said: "consumo de los rewinders sea similar a la producción de torsión"
-        # and "que los 28 rewinders estén siempre ocupados"
-        
-        # Calculate consumption for each valid post count
-        best_p = 0
-        min_diff = float('inf')
-        
-        # Filter valid posts by remaining slots
-        possible_posts = [p for p in valid_posts if p <= posts_remaining]
-        
-        if not possible_posts:
-             continue
-             
-        # Select best P
-        # If this is a high priority bottleneck, valid posts should aim for Max Torsion Rate
-        # Sort possible_posts by closeness to max_torsion_rate
-        # We prefer p where Consumption ~= Max Torsion Rate
-        possible_posts.sort(key=lambda p: abs(max_rate - (p * rw_rate_per_post)))
-        
-        assigned_success = False
-        
-        for p in possible_posts:
-            # TRY Torsion first (Dry Run)
-            target_prod = p * rw_rate_per_post
+        # Try best fit p (descending for utilization)
+        for p in sorted(valid, reverse=True):
+            target = p * item['rw_rate']
             temp_status = machine_status.copy()
-            assigned_machines = _assign_machines_for_ref(
-                denier, 
-                target_prod, 
-                torsion_capacities, 
-                temp_status, 
-                shift_duration
+            assigned_m = _assign_machines_for_ref_balanced(
+                item['denier'], target, torsion_capacities, temp_status, shift_duration
             )
-            
-            # If NO torsion machine could be assigned, try next p
-            if not assigned_machines:
-                continue
-                
-            # --- STRICT MASS BALANCE CHECK ---
-            kg_torsion_supply = sum(t['kg_turno'] for t in assigned_machines)
-            kg_consumption = p * rw_rate_per_post * shift_duration
-            
-            # Constraint: Torsion Supply must be at least 90% of Consumption
-            if kg_torsion_supply < kg_consumption * 0.9:
-                continue # Try next p
-            # ---------------------------------
-            
-            # Commit Status
-            machine_status = temp_status
-            torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
+            if assigned_m:
+                supply = sum(m['kg_turno'] for m in assigned_m)
+                consumption = p * item['rw_rate'] * shift_duration
+                if _is_balanced(supply, consumption):
+                    rewinder_assignments.append({
+                        'ref': item['ref'],
+                        'descripcion': item['descripcion'],
+                        'denier': item['denier'],
+                        'puestos': p,
+                        'operarios': math.ceil(p / item['n_optimo']),
+                        'kg_producidos': consumption,
+                        'rw_rate_total': target
+                    })
+                    torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_m])
+                    machine_status = temp_status
+                    posts_remaining -= p
+                    break
 
-            operarios = math.ceil(p / item['n_optimo'])
-            
-            # Limit by pending (visual only, actual consumption tracked)
-            # if kg_consumption > item['kg_pendientes']: pass
-
-            rewinder_assignments.append({
-                'ref': item['ref'],
-                'descripcion': item['descripcion'],
-                'denier': denier,
-                'puestos': p,
-                'operarios': operarios,
-                'kg_producidos': kg_consumption, 
-                'rw_rate_total': p * rw_rate_per_post
-            })
-            
-            posts_remaining -= p
-            assigned_success = True
-            break # Stop after finding best valid p
-
-    # --- PASS 2: TOPPING UP ---
-    # Try to increase post counts for ALREADY assigned references if space allows
+    # --- Pass 2: Upgrade Existing or Add New (Exhaustive Fill) ---
     if posts_remaining > 0:
-        for assign in rewinder_assignments:
+        for cand in candidates:
             if posts_remaining <= 0: break
+            item = cand['item']
+            exist = next((a for a in rewinder_assignments if a['ref'] == item['ref']), None)
             
-            ref = assign['ref']
-            item = next((c['item'] for c in candidates if c['item']['ref'] == ref), None)
-            if not item: continue
-            
-            valid_posts = item['valid_posts']
-            # Find a count higher than current but within limit
-            possible_upgrades = [p for p in valid_posts if p > assign['puestos'] and p <= assign['puestos'] + posts_remaining]
-            # Try from highest possible upgrade
-            for p_new in sorted(possible_upgrades, reverse=True):
-                # Check Torsion Support for the EXTRA production
-                extra_p = p_new - assign['puestos']
-                target_extra_prod = extra_p * item['rw_rate']
-                
-                temp_status = machine_status.copy()
-                # Redo machine search (simplified: just try to find more for this denier)
-                extra_machines = _assign_machines_for_ref(
-                    item['denier'], 
-                    target_extra_prod, 
-                    torsion_capacities, 
-                    temp_status, 
-                    shift_duration
-                )
-                
-                if extra_machines:
-                    # Validate total mass balance for the new total
-                    total_p = p_new
-                    new_kg_consumption = total_p * item['rw_rate'] * shift_duration
-                    
-                    # New total supply = current plus new findings
-                    # Note: machine_status already contains current machines, 
-                    # _assign_machines_for_ref skips used ones. 
-                    # So we sum current assign's torsion + new findings.
-                    # Wait, calculating total supply is easier:
-                    # assigned_machines for this ref should be re-calculated or just additive.
-                    # Let's re-calculate to be safe.
-                    
-                    # Reset status for THIS ref's machines (to allow re-picking or re-validating)
-                    # This is complex. Let's stick to ADDITIVE:
-                    kg_extra_supply = sum(m['kg_turno'] for m in extra_machines)
-                    # Current supply for this ref:
-                    kg_current_ref_supply = sum(t['kg_turno'] for t in torsion_assignments if t['ref'] == ref)
-                    
-                    total_supply = kg_current_ref_supply + kg_extra_supply
-                    
-                    if total_supply >= new_kg_consumption * 0.9:
-                        # Success! Update assignment
-                        machine_status = temp_status
-                        torsion_assignments.extend([{**m, 'ref': ref} for m in extra_machines])
+            if exist:
+                # Try upgrading to higher valid count
+                possible = [p for p in item['valid_posts'] if p > exist['puestos'] and p <= exist['puestos'] + posts_remaining]
+                for p_new in sorted(possible, reverse=True):
+                    target = p_new * item['rw_rate']
+                    temp_status = machine_status.copy()
+                    # Re-pick machines for the whole ref
+                    curr_m = [t['maquina'] for t in torsion_assignments if t['ref'] == item['ref']]
+                    for m_id in curr_m:
+                        if m_id in temp_status: del temp_status[m_id]
                         
-                        posts_remaining -= extra_p
-                        assign['puestos'] = p_new
-                        assign['operarios'] = math.ceil(p_new / item['n_optimo'])
-                        assign['kg_producidos'] = new_kg_consumption
-                        assign['rw_rate_total'] = p_new * item['rw_rate']
-                        break # Done with this ref
+                    assigned_m = _assign_machines_for_ref_balanced(
+                        item['denier'], target, torsion_capacities, temp_status, shift_duration
+                    )
+                    if assigned_m:
+                        supply = sum(m['kg_turno'] for m in assigned_m)
+                        consumption = p_new * item['rw_rate'] * shift_duration
+                        if _is_balanced(supply, consumption):
+                            posts_remaining -= (p_new - exist['puestos'])
+                            exist['puestos'] = p_new
+                            exist['operarios'] = math.ceil(p_new / item['n_optimo'])
+                            exist['kg_producidos'] = consumption
+                            exist['rw_rate_total'] = target
+                            torsion_assignments = [t for t in torsion_assignments if t['ref'] != item['ref']]
+                            torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_m])
+                            machine_status = temp_status
+                            break
+            else:
+                # Try adding new reference
+                valid = [p for p in item['valid_posts'] if p <= posts_remaining]
+                for p in sorted(valid, reverse=True):
+                    target = p * item['rw_rate']
+                    temp_status = machine_status.copy()
+                    assigned_m = _assign_machines_for_ref_balanced(
+                        item['denier'], target, torsion_capacities, temp_status, shift_duration
+                    )
+                    if assigned_m:
+                        supply = sum(m['kg_turno'] for m in assigned_m)
+                        consumption = p * item['rw_rate'] * shift_duration
+                        if _is_balanced(supply, consumption):
+                            rewinder_assignments.append({
+                                'ref': item['ref'],
+                                'descripcion': item['descripcion'],
+                                'denier': item['denier'],
+                                'puestos': p,
+                                'operarios': math.ceil(p / item['n_optimo']),
+                                'kg_producidos': consumption,
+                                'rw_rate_total': target
+                            })
+                            torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_m])
+                            machine_status = temp_status
+                            posts_remaining -= p
+                            break
+    return rewinder_assignments, torsion_assignments, posts_remaining
 
-    # --- PASS 3: EMERGENCY FILL ---
-    # Even if their max_torsion_rate is low, we need to fill 28 posts?
-    # User says: "28 rewinders estén siempre ocupados"
-    if posts_remaining > 0:
-       # Try to find any ref that fits remaining posts
-       for cand in candidates:
-           if posts_remaining <= 0: break
-           item = cand['item']
-           # Skip if already assigned
-           if any(x['ref'] == item['ref'] for x in rewinder_assignments):
-               continue
-               
-           valid_posts = item['valid_posts']
-           # Find largest valid post <= posts_remaining
-           possible = [p for p in valid_posts if p <= posts_remaining]
-           if possible:
-               p = max(possible)
-               
-               # TRY Torsion first
-               target_prod = p * item['rw_rate']
-               temp_status = machine_status.copy()
-               assigned_machines = _assign_machines_for_ref(
-                    item['denier'], 
-                    target_prod, 
-                    torsion_capacities, 
-                    temp_status, 
-                    shift_duration
-                )
-               
-               if not assigned_machines:
-                   continue
-               
-               machine_status = temp_status
-               torsion_assignments.extend([{**m, 'ref': item['ref']} for m in assigned_machines])
-               
-               operarios = math.ceil(p / item['n_optimo'])
-               kg_consumption = p * item['rw_rate'] * shift_duration
-               
-               # --- STRICT MASS BALANCE CHECK (Pass 2) ---
-               kg_torsion_supply = sum(t['kg_turno'] for t in assigned_machines)
-               if kg_torsion_supply < kg_consumption * 0.9:
-                   # Rollback
-                   machine_status = temp_status
-                   continue
-               # ------------------------------------------
-
-               rewinder_assignments.append({
-                    'ref': item['ref'],
-                    'descripcion': item['descripcion'],
-                    'denier': item['denier'],
-                    'puestos': p,
-                    'operarios': operarios,
-                    'kg_producidos': kg_consumption,
-                    'rw_rate_total': p * item['rw_rate']
-               })
-               posts_remaining -= p
-
-    return rewinder_assignments, torsion_assignments
+def _assign_machines_for_ref_balanced(denier, target_kgh, torsion_capacities, machine_status, shift_duration):
+    """
+    Tries to find machines to match target_kgh exactly by using partial husos if needed.
+    """
+    if target_kgh <= 0: return []
+    
+    cap_data = torsion_capacities.get(denier, {})
+    # Machines not fully occupied. 
+    # To support partial assignment, machine_status should track remaining husos.
+    # For now, let's keep it simple: only one ref per machine, but we can use fewer husos.
+    available_machines = [m for m in cap_data.get('machines', []) if m['machine_id'] not in machine_status]
+    if not available_machines:
+        return []
+        
+    machines = sorted(available_machines, key=lambda x: x['kgh'], reverse=True)
+    
+    selected = []
+    current_kgh = 0
+    
+    for m in machines:
+        if current_kgh >= target_kgh: break
+        
+        m_id = m['machine_id']
+        m_max_kgh = m['kgh']
+        m_total_husos = m['husos']
+        
+        needed_kgh = target_kgh - current_kgh
+        
+        if m_max_kgh <= needed_kgh:
+            # Use full machine
+            assigned_husos = m_total_husos
+            assigned_kgh = m_max_kgh
+        else:
+            # Use partial machine to match exactly
+            assigned_husos = math.ceil((needed_kgh / m_max_kgh) * m_total_husos)
+            # Ensure we don't exceed total
+            assigned_husos = min(assigned_husos, m_total_husos)
+            assigned_kgh = (assigned_husos / m_total_husos) * m_max_kgh
+            
+        machine_status[m_id] = True # Mark as used (we don't split machines between references yet)
+        current_kgh += assigned_kgh
+        selected.append({
+            'maquina': m_id,
+            'denier': denier,
+            'husos_asignados': assigned_husos,
+            'husos_totales': m_total_husos,
+            'kgh_maquina': assigned_kgh,
+            'kg_turno': assigned_kgh * shift_duration,
+            'operarios': 1
+        })
+            
+    # Check if we met the demand (within 5% tolerance)
+    if current_kgh >= target_kgh * 0.95:
+        return selected
+    else:
+        # Rollback
+        for s in selected:
+            if s['maquina'] in machine_status: del machine_status[s['maquina']]
+        return []
 
 def _assign_machines_for_ref(denier, target_kgh, torsion_capacities, machine_status, shift_duration):
     """
@@ -513,7 +442,7 @@ def generate_production_schedule(
                 break
                 
             # EXECUTE GREEDY HEURISTIC
-            rw_assigns, tor_assigns = assign_shift_greedy(
+            rw_assigns, tor_assigns, p_rem = assign_shift_greedy(
                 current_active,
                 total_rewinders,
                 torsion_capacities,
@@ -523,10 +452,6 @@ def generate_production_schedule(
             # Process Results & Update Backlog
             shift_rewinder_data = []
             total_ops_rewinder = 0
-            # Track remaining for debug
-            # (Note: posts_remaining is a local in assign_shift_greedy, not returned)
-            # Re-calculate it here
-            shift_posts_used = sum(a['puestos'] for a in rw_assigns)
             
             for assign in rw_assigns:
                 ref = assign['ref']
@@ -562,6 +487,7 @@ def generate_production_schedule(
                 kg_demandados_dia += assign['kg_producidos']
 
             # Torsion Data Formatter
+            # _assign_machines_for_ref returns internal dicts, map to UI format
             shift_torsion_data = []
             torsion_ops_count = len(set(t['maquina'] for t in tor_assigns))
             
@@ -583,8 +509,8 @@ def generate_production_schedule(
                 "horario": shift_def["horario"],
                 "operarios_requeridos": total_ops_rewinder,
                 "asignaciones": shift_rewinder_data,
-                "posts_ocupados": shift_posts_used,
-                "posts_libres": 28 - shift_posts_used
+                "posts_ocupados": 28 - p_rem,
+                "posts_libres": p_rem
             })
             
             dia_entry["turnos_torsion"].append({
@@ -599,13 +525,19 @@ def generate_production_schedule(
         # --- CALCULATION LOGS (DEBUG INFO) ---
         debug_logs = []
         for denier, cap in torsion_capacities.items():
-            used_kgh = sum(t['kgh_maquina'] for turn in dia_entry['turnos_torsion'] for t in turn['asignaciones'] if t['denier'] == denier)
-            avg_used_kgh = used_kgh / max(num_shifts, 1)
+            # Supply: Total Torsion prod for this denier today
+            supply_kg = sum(t['kg_turno'] for turn in dia_entry['turnos_torsion'] for t in turn['asignaciones'] if t['denier'] == denier)
+            # Demand: Total Rewinder consumption for this denier today
+            demand_kg = sum(a['kg_producidos'] for turn in dia_entry['turnos'] for a in turn['asignaciones'] if a['denier'] == denier)
+            
+            balance_ratio = (supply_kg / demand_kg * 100) if demand_kg > 0 else 0
+            
             debug_logs.append({
                 "denier": denier,
                 "capacidad_total_kgh": cap['total_kgh'],
-                "ocupacion_kgh": round(avg_used_kgh, 1),
-                "porcentaje": round((avg_used_kgh / cap['total_kgh'] * 100), 1) if cap['total_kgh'] > 0 else 0
+                "suministro_kg": round(supply_kg, 1),
+                "demanda_kg": round(demand_kg, 1),
+                "balance_ratio": round(balance_ratio, 1) # Target 100%
             })
         
         # Calculate daily post stats
