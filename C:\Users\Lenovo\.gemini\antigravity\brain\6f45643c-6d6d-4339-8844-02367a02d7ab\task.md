@@ -1,5 +1,6 @@
 # Task: Push AI Scheduling Logic Changes to GitHub
 
 - [x] Verify git status and remote <!-- id: 0 -->
-- [x] Commit changes to `integrations/openai_ia.py` <!-- id: 1 -->
-- [x] Push changes to GitHub repository <!-- id: 2 -->
+- [x] Initial push of dedicated strategy <!-- id: 3 -->
+- [x] Push refactored object-oriented logic to GitHub <!-- id: 4 -->
+- [x] Update walkthrough documentation <!-- id: 5 -->
