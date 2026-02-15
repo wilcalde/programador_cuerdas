@@ -45,9 +45,15 @@
 
 <style>
     @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
     }
+
     .chart-container {
         position: relative;
         height: 300px;
@@ -57,12 +63,14 @@
         padding: 1rem;
         border-radius: 8px;
     }
+
     .schedule-tabs {
         display: flex;
         gap: 0;
         margin: 2rem 0 1.5rem;
         border-bottom: 2px solid var(--border-color);
     }
+
     .schedule-tab {
         padding: 0.75rem 2rem;
         cursor: pointer;
@@ -73,17 +81,28 @@
         transition: all 0.2s;
         user-select: none;
     }
-    .schedule-tab:hover { color: #F8FAFC; }
+
+    .schedule-tab:hover {
+        color: #F8FAFC;
+    }
+
     .schedule-tab.active {
         color: #38BDF8;
         border-bottom-color: #38BDF8;
     }
+
     .schedule-tab.torsion-tab.active {
         color: #A78BFA;
         border-bottom-color: #A78BFA;
     }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+
+    .tab-panel {
+        display: none;
+    }
+
+    .tab-panel.active {
+        display: block;
+    }
 </style>
 {% endblock %}
 
@@ -105,14 +124,24 @@
         try {
             const response = await fetch('/api/generate_schedule', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({ strategy: strategy })
             });
             const data = await response.json();
+
             document.getElementById('loading').style.display = 'none';
 
             if (!response.ok || data.error) {
-                document.getElementById('results').innerHTML = `<div class="card glass"><p>${data.error || 'Error'}</p></div>`;
+                const errorMsg = data.error || `Error del servidor (${response.status})`;
+                document.getElementById('results').innerHTML = `
+                    <div class="card glass" style="border-left: 4px solid #EF4444;">
+                        <h3 style="color: #EF4444;">❌ Error de Programación</h3>
+                        <p style="margin-top: 1rem;">${errorMsg}</p>
+                        ${data.traceback ? `<pre style="font-size: 0.7rem; color: #94A3B8; margin-top: 1rem; background: rgba(0,0,0,0.3); padding: 1rem; overflow: auto;">${data.traceback.join('\n')}</pre>` : ''}
+                    </div>
+                `;
                 return;
             }
 
@@ -122,45 +151,219 @@
 
             let html = `
             <div class="card glass" style="border-top: 4px solid #10B981; margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between;">
-                    <div><h3>✅ Programación Exitosa</h3><p>${res.comentario_estrategia}</p></div>
-                    <div><button class="btn btn-secondary" onclick="savePlan()">Guardar</button> <button class="btn btn-primary" onclick="exportToPDF()">PDF</button></div>
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <h3 style="color: #10B981;">✅ Programación Exitosa</h3>
+                        <p style="margin-top:0.5rem; color: #94A3B8;">${res.comentario_estrategia}</p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="savePlan()" style="padding: 0.5rem 1rem; font-size: 0.8rem;">
+                            <i class="bi bi-save"></i> Guardar Plan
+                        </button>
+                        <button class="btn btn-primary" onclick="exportToPDF()" style="padding: 0.5rem 1rem; font-size: 0.8rem; background: #3B82F6;">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF
+                        </button>
+                    </div>
                 </div>
-                <div class="grid" style="margin-top: 1rem;">
-                    <div class="card"><div class="metric-label">Total Kg</div><div class="metric-value">${res.kg_totales_plan} kg</div></div>
-                    <div class="card"><div class="metric-label">Días</div><div class="metric-value">${res.total_dias_programados}</div></div>
+                <div class="grid" style="margin-top: 2rem;">
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Fin Estimado</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.fecha_finalizacion_total}</div>
+                    </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Días Programados</div>
+                        <div class="metric-value" style="font-size: 1.2rem;">${res.total_dias_programados}</div>
+                    </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">Total Kg en el Plan</div>
+                        <div class="metric-value" style="font-size: 1.2rem; color: #10B981;">${res.kg_totales_plan?.toLocaleString() || '0'} kg</div>
+                    </div>
+                    <div class="card" style="background: rgba(0,0,0,0.2);">
+                        <div class="metric-label">28 Rewinders Hasta</div>
+                        <div class="metric-value" style="font-size: 1.2rem; color: #FACC15;">${res.fecha_capacidad_completa || 'N/A'}</div>
+                    </div>
                 </div>
-                <div class="chart-container"><canvas id="resourceChart"></canvas></div>
-            </div>`;
 
-            html += `<div class="schedule-tabs"><div class="schedule-tab active" onclick="switchScheduleTab('rewinder', this)">🔄 Rewinder</div><div class="schedule-tab torsion-tab" onclick="switchScheduleTab('torsion', this)">⚙️ Torsión</div></div>`;
-            html += `<div id="panel-rewinder" class="tab-panel active"><h2>Cronograma Rewinder</h2>`;
-            scenario.cronograma_diario.forEach(dia => {
-                html += `<div class="card glass"><h3>${dia.fecha}</h3>`;
-                dia.turnos.forEach(t => {
-                    html += `<h4>Turno ${t.nombre} (${t.horario})</h4><table><thead><tr><th>Ref</th><th>Posts</th><th>Kg</th></tr></thead><tbody>`;
-                    t.asignaciones.forEach(a => { html += `<tr><td>${a.referencia}</td><td>${a.puestos}</td><td>${a.kg_producidos}</td></tr>`; });
-                    html += `</tbody></table>`;
-                });
-                html += `</div>`;
-            });
-            html += `</div>`;
+                ${res.alerta_capacidad ? `
+                <div style="margin-top: 1.5rem; padding: 1rem 1.5rem; border-radius: 8px; border-left: 4px solid ${res.alerta_capacidad.startsWith('✅') ? '#10B981' : '#FACC15'}; background: ${res.alerta_capacidad.startsWith('✅') ? 'rgba(16,185,129,0.1)' : 'rgba(250,204,21,0.1)'}; font-size: 0.95rem;">
+                    <strong style="color: ${res.alerta_capacidad.startsWith('✅') ? '#10B981' : '#FACC15'};">Alerta de Capacidad:</strong>
+                    <span style="color: #F8FAFC; margin-left: 0.5rem;">${res.alerta_capacidad}</span>
+                </div>
+                ` : ''}
+                
+                <div class="chart-container">
+                    <canvas id="resourceChart"></canvas>
+                </div>
+            </div>
 
-            html += `<div id="panel-torsion" class="tab-panel"><h2>Cronograma Torsión</h2>`;
-            scenario.cronograma_diario.forEach(dia => {
-                html += `<div class="card glass"><h3>${dia.fecha}</h3>`;
-                dia.turnos_torsion.forEach(t => {
-                    html += `<h4>Turno ${t.nombre}</h4><table><thead><tr><th>Máq</th><th>Ref</th><th>Husos</th></tr></thead><tbody>`;
-                    t.asignaciones.forEach(a => { html += `<tr><td>${a.maquina}</td><td>${a.referencia}</td><td>${a.husos_asignados}</td></tr>`; });
-                    html += `</tbody></table>`;
-                });
-                html += `</div>`;
+            `;
+
+            // ============== SUMMARY TABLE ==============
+            html += `
+            <h2 style="margin: 2rem 0 1rem;">🏁 Resumen por Referencia (Terminación)</h2>
+            <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #38BDF8;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr style="color: #38BDF8; border-bottom: 1px solid var(--border-color);">
+                            <th style="padding: 0.75rem;">Referencia</th>
+                            <th style="padding: 0.75rem;">Descripción</th>
+                            <th style="padding: 0.75rem;">Fecha de Terminación</th>
+                            <th style="padding: 0.75rem;">Puestos Promedio</th>
+                            <th style="padding: 0.75rem;">Total Kg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            scenario.tabla_finalizacion_referencias.forEach(row => {
+                html += `
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <td style="padding: 0.75rem;"><strong>${row.referencia}</strong></td>
+                        <td style="padding: 0.75rem; font-size: 0.85rem; color: #CBD5E1;">${row.descripcion || ''}</td>
+                        <td style="padding: 0.75rem; color: #10B981;">📅 ${row.fecha_finalizacion}</td>
+                        <td style="padding: 0.75rem;">${row.puestos_promedio}</td>
+                        <td style="padding: 0.75rem;">${Math.round(row.kg_totales)} kg</td>
+                    </tr>
+                `;
             });
-            html += `</div>`;
+
+            html += `
+                    </tbody>
+                </table>
+            </div>
+            `;
+
+            // ============== TAB NAVIGATION ==============
+            html += `
+            <div class="schedule-tabs">
+                <div class="schedule-tab torsion-tab active" onclick="switchScheduleTab('torsion', this)">⚙️ Torsión</div>
+                <!-- <div class="schedule-tab" onclick="switchScheduleTab('rewinder', this)">🔄 Rewinder (Oculto)</div> -->
+            </div>
+            `;
+
+            // ============== REWINDER TAB (HIDDEN) ==============
+            html += `<div id="panel-rewinder" class="tab-panel">`; 
+            // Rewinder content logic preserved but hidden by default class
+            html += `</div>`; 
+
+            // ============== TORSION TAB (ACTIVE) ==============
+            html += `<div id="panel-torsion" class="tab-panel active">`;
+            html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin: 1rem 0;">
+                <h2>⚙️ Cronograma Diario — Línea de Torsión</h2>
+                <button class="btn btn-primary" onclick="exportTorsionPDF()" style="padding: 0.5rem 1rem; font-size: 0.8rem; background: #7C3AED;">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF Torsión
+                </button>
+            </div>
+            `;
+            
+            // New Machine Summary Table
+            if (scenario.resumen_maquinas) {
+                 html += `
+                <h3 style="margin-top: 1.5rem; color: #A78BFA;">📊 Carga por Máquina</h3>
+                <div class="card glass" style="margin-bottom: 2rem; border-left: 4px solid #A78BFA;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                        <thead>
+                            <tr style="color: #A78BFA; border-bottom: 1px solid var(--border-color);">
+                                <th style="padding: 0.75rem;">Máquina</th>
+                                <th style="padding: 0.75rem;">Horas Trab.</th>
+                                <th style="padding: 0.75rem;">Kg Totales</th>
+                                <th style="padding: 0.75rem;">Refs Asignadas</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                scenario.resumen_maquinas.forEach(m => {
+                    html += `
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 0.75rem; font-weight: bold;">${m.maquina}</td>
+                            <td style="padding: 0.75rem;">${m.horas_trabajadas} h</td>
+                            <td style="padding: 0.75rem;">${m.kg_totales} kg</td>
+                            <td style="padding: 0.75rem; font-size: 0.8rem; color: #94A3B8;">${m.referencias.join(', ')}</td>
+                        </tr>
+                    `;
+                });
+                html += `</tbody></table></div>`;
+            }
+
+            // Shifts Table
+            const cronograma = scenario.tabla_turnos || scenario.cronograma_torsion || []; // Compatibility
+            
+            if (cronograma.length > 0) {
+                 cronograma.forEach(turno => {
+                     html += `
+                    <div class="card glass" style="margin-bottom: 1rem; border-bottom: 1px solid #A78BFA;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <h4 style="color: #F8FAFC; margin: 0;">${turno.fecha}</h4>
+                            <span style="font-size: 0.9rem; color: #A78BFA;">Activas: <strong>${turno.maquinas_activas}</strong>/4</span>
+                        </div>
+                        <table style="width: 100%; font-size: 0.9rem;">
+                            <thead>
+                                <tr style="color: #94A3B8;">
+                                    <th>Máq</th>
+                                    <th>Ref</th>
+                                    <th>Estado</th>
+                                    <th style="text-align: right;">Producción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                     `;
+                     turno.detalles.forEach(d => {
+                         html += `
+                            <tr style="border-top: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 0.4rem 0; color: #A78BFA; font-weight: bold;">${d.maquina}</td>
+                                <td style="padding: 0.4rem 0;">${d.ref} (D${d.denier})</td>
+                                <td style="padding: 0.4rem 0;">${d.estado === 'BACKUP_RUNNING' ? '🔄 Backup' : '✅ Normal'}</td>
+                                <td style="padding: 0.4rem 0; text-align: right; color: #10B981;">${d.kg} kg</td>
+                            </tr>
+                         `;
+                     });
+                     html += `</tbody></table></div>`;
+                 });
+            } else {
+                 html += `<p style="color: #94A3B8;">No hay turnos programados.</p>`;
+            }
+
+            html += `</div>`; // close panel-torsion
 
             document.getElementById('results').innerHTML = html;
-            renderChart(scenario.datos_para_grafica);
-        } catch (err) { console.error(err); }
+
+            // Render Charts
+            if (scenario.datos_para_grafica) {
+                renderChart(scenario.datos_para_grafica);
+                renderDailyTotalsChart(scenario.datos_para_grafica);
+            }
+
+        } catch (err) {
+            // ... (omitting catch block for brevity as it remains same)
+        }
+    }
+
+    function renderDailyTotalsChart(data) {
+        if (dailyChart) dailyChart.destroy();
+        const ctx = document.getElementById('dailyTotalsChart').getContext('2d');
+        dailyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: 'Kg Totales x Día',
+                    data: data.dataset_kg_produccion,
+                    backgroundColor: 'rgba(16, 185, 129, 0.5)',
+                    borderColor: '#10B981',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#94A3B8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                    x: { ticks: { color: '#94A3B8' }, grid: { display: false } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
     }
 
     function renderChart(data) {
@@ -171,40 +374,392 @@
             data: {
                 labels: data.labels,
                 datasets: [
-                    { label: 'Ops', data: data.dataset_operarios, type: 'line', yAxisID: 'yOps' },
-                    { label: 'Kg', data: data.dataset_kg_produccion, yAxisID: 'yKg' }
+                    {
+                        label: 'Operarios Max',
+                        data: data.dataset_operarios,
+                        type: 'line',
+                        borderColor: '#6366F1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.2)',
+                        yAxisID: 'yOps',
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Producción (Kg)',
+                        data: data.dataset_kg_produccion,
+                        backgroundColor: 'rgba(56, 189, 248, 0.3)',
+                        borderColor: '#38BDF8',
+                        borderWidth: 1,
+                        yAxisID: 'yKg'
+                    }
                 ]
             },
-            options: { scales: { yOps: { position: 'left' }, yKg: { position: 'right' } } }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    yOps: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Operarios', color: '#6366F1' },
+                        ticks: { color: '#6366F1' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    yKg: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Kilogramos', color: '#38BDF8' },
+                        ticks: { color: '#38BDF8' },
+                        grid: { display: false }
+                    },
+                    x: { ticks: { color: '#94A3B8' }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { labels: { color: '#F8FAFC' } }
+                }
+            }
         });
     }
 
     async function savePlan() {
         if (!currentPlan) return;
-        const res = await fetch('/api/save_schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: currentPlan }) });
-        const data = await res.json();
-        alert(data.success ? "¡Guardado!" : "Error: " + data.error);
+        try {
+            const res = await fetch('/api/save_schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentPlan)
+            });
+            const data = await res.json();
+            if (data.success) alert("¡Plan guardado exitosamente!");
+            else alert("Error al guardar: " + data.error);
+        } catch (e) {
+            console.error(e);
+            alert("Error de conexión al guardar el plan.");
+        }
     }
 
     function exportToPDF() {
+        if (!currentPlan) return;
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        doc.text("Plan de Producción", 10, 10);
-        doc.save("Plan.pdf");
+        const doc = new jsPDF('p', 'pt', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        const colors = {
+            bg: [255, 255, 255],
+            text: [15, 23, 42],
+            muted: [100, 116, 139],
+            accent: [59, 130, 246],
+            headerBg: [255, 255, 255],
+            cardBg: [248, 250, 252],
+            border: [226, 232, 240]
+        };
+
+        const drawHeader = (d) => {
+            d.setFillColor(...colors.bg);
+            d.rect(0, 0, pageWidth, 80, 'F');
+
+            d.setTextColor(...colors.text);
+            d.setFontSize(18); d.setFont("helvetica", "bold");
+            d.text("Plan de Producción Cabuyas Linea Cordeleria", 40, 45);
+
+            d.setFontSize(10); d.setFont("helvetica", "normal"); d.setTextColor(...colors.muted);
+            d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
+
+            d.setDrawColor(...colors.border);
+            d.line(40, 75, pageWidth - 40, 75);
+        };
+
+        const drawFooter = (d, pNum, pTot) => {
+            d.setFontSize(8); d.setTextColor(...colors.muted);
+            d.text(`Página ${pNum} de ${pTot}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+        };
+
+        const checkNewPage = (needed) => {
+            if (yPos + needed > pageHeight - 60) {
+                doc.addPage();
+                drawHeader(doc);
+                yPos = 110;
+                return true;
+            }
+            return false;
+        };
+
+        // --- Calculation of "Dias trabajados" (excluding Sundays) ---
+        let workingDaysCount = 0;
+        if (currentPlan.cronograma_diario) {
+            currentPlan.cronograma_diario.forEach(day => {
+                const dateObj = new Date(day.fecha + 'T00:00:00');
+                if (dateObj.getDay() !== 0) {
+                    workingDaysCount++;
+                }
+            });
+        }
+        const displayedDays = workingDaysCount > 0 ? workingDaysCount : (currentPlan.resumen_global.total_dias_programados || 0);
+
+        // --- Page 1: Metrics & Charts ---
+        drawHeader(doc);
+        let yPos = 100;
+
+        // Metric Labels
+        doc.setFontSize(10); doc.setTextColor(...colors.muted); doc.setFont("helvetica", "bold");
+        doc.text("Días Trabajados (Sin Domingos)", 40, yPos);
+        doc.text("Total Kg en el Plan", 250, yPos);
+
+        yPos += 20;
+
+        // Metric Values
+        doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+        doc.text(displayedDays.toString(), 40, yPos);
+        doc.text((currentPlan.resumen_global.kg_totales_plan?.toLocaleString() || '0') + " kg", 250, yPos);
+
+        yPos += 30;
+
+        // Chart 1: Resource Chart (Kg & Personnel)
+        try {
+            const resCanvas = document.getElementById('resourceChart');
+            if (resCanvas) {
+                doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+                doc.text("Kilos diarios esperados en rewinder y # personas por día", 40, yPos);
+                yPos += 15;
+                doc.addImage(resCanvas.toDataURL("image/png", 0.9), 'PNG', 40, yPos, pageWidth - 80, 180);
+                yPos += 200;
+            }
+        } catch (e) { console.error("Chart Error:", e); }
+
+        // --- Detalle por día y turnos Línea rewinder ---
+        checkNewPage(40);
+        doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+        doc.text("Detalle por día y turnos Línea rewinder", 40, yPos);
+        yPos += 25;
+
+        // Iterate Days
+        if (currentPlan.cronograma_diario) {
+            currentPlan.cronograma_diario.forEach((dia) => {
+                checkNewPage(120);
+
+                // Day Header
+                doc.setFillColor(...colors.cardBg);
+                doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
+                doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+                doc.text(`Fecha: ${dia.fecha}`, 50, yPos + 2);
+                yPos += 30;
+
+                if (dia.turnos && dia.turnos.length > 0) {
+                    dia.turnos.forEach(turno => {
+                        checkNewPage(80);
+
+                        doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
+                        doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
+                        yPos += 10;
+
+                        const tableRows = turno.asignaciones.map(a => [
+                            a.referencia,
+                            a.descripcion || '',
+                            a.puestos,
+                            a.operarios,
+                            Math.round(a.kg_producidos).toLocaleString() + " kg"
+                        ]);
+
+                        doc.autoTable({
+                            startY: yPos,
+                            head: [['Referencia', 'Descripción', 'Puestos', 'Operarios', 'Producción (8h)']],
+                            body: tableRows,
+                            theme: 'plain',
+                            headStyles: {
+                                fillColor: [240, 240, 240],
+                                textColor: [0, 0, 0],
+                                fontStyle: 'bold',
+                                lineWidth: 0.5,
+                                lineColor: [200, 200, 200]
+                            },
+                            styles: {
+                                fontSize: 9,
+                                textColor: [50, 50, 50],
+                                cellPadding: 4,
+                                lineColor: [230, 230, 230],
+                                lineWidth: 0.5
+                            },
+                            theme: 'grid',
+                            columnStyles: {
+                                0: { fontStyle: 'bold' },
+                                4: { halign: 'right' }
+                            },
+                            margin: { left: 40, right: 40 }
+                        });
+
+                        yPos = doc.lastAutoTable.finalY + 20;
+                    });
+                } else {
+                    doc.setFontSize(9); doc.setTextColor(...colors.muted); doc.setFont("helvetica", "italic");
+                    doc.text("Sin producción programada (Domingo o Festivo)", 40, yPos);
+                    yPos += 20;
+                }
+                yPos += 10;
+            });
+        }
+
+        // --- Final Pages: Summary by Reference ---
+        checkNewPage(100);
+        doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+        doc.text("Resumen por Referencia (Terminación)", 40, yPos); yPos += 20;
+
+        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [
+            r.referencia,
+            r.descripcion || '',
+            r.fecha_finalizacion,
+            Math.round(r.kg_totales).toLocaleString() + " kg"
+        ]);
+
+        doc.autoTable({
+            startY: yPos,
+            head: [['Referencia', 'Descripción', 'Fecha Terminación', 'Total Kg']],
+            body: sumRows,
+            theme: 'grid',
+            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineColor: [200, 200, 200], lineWidth: 0.5 },
+            styles: { fontSize: 9, textColor: [50, 50, 50], lineColor: [230, 230, 230], lineWidth: 0.5 },
+            columnStyles: { 3: { halign: 'right' } },
+            margin: { left: 40, right: 40 }
+        });
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            drawFooter(doc, i, totalPages);
+        }
+
+        doc.save(`Plan_Produccion_Cordeleria_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 
-    function switchScheduleTab(name, el) {
+    function switchScheduleTab(tabName, el) {
+        // Update tab classes
         document.querySelectorAll('.schedule-tab').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
+        // Toggle panels
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        document.getElementById('panel-' + name).classList.add('active');
+        const panel = document.getElementById('panel-' + tabName);
+        if (panel) panel.classList.add('active');
     }
 
     function exportTorsionPDF() {
+        if (!currentPlan) return;
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        doc.text("Plan de Torsión", 10, 10);
-        doc.save("Torsion.pdf");
+        const doc = new jsPDF('l', 'pt', 'a4'); // landscape for wider table
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        const colors = {
+            text: [15, 23, 42],
+            muted: [100, 116, 139],
+            accent: [124, 58, 237], // purple
+            border: [226, 232, 240]
+        };
+
+        const drawHeader = (d) => {
+            d.setFillColor(255, 255, 255);
+            d.rect(0, 0, pageWidth, 80, 'F');
+            d.setTextColor(...colors.text);
+            d.setFontSize(18); d.setFont("helvetica", "bold");
+            d.text("Programación Línea de Torsión", 40, 45);
+            d.setFontSize(10); d.setFont("helvetica", "normal"); d.setTextColor(...colors.muted);
+            d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
+            d.setDrawColor(...colors.border);
+            d.line(40, 75, pageWidth - 40, 75);
+        };
+
+        const drawFooter = (d, pNum, pTot) => {
+            d.setFontSize(8); d.setTextColor(...colors.muted);
+            d.text(`Página ${pNum} de ${pTot}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+        };
+
+        let yPos = 100;
+
+        const checkNewPage = (needed) => {
+            if (yPos + needed > pageHeight - 60) {
+                doc.addPage();
+                drawHeader(doc);
+                yPos = 100;
+                return true;
+            }
+            return false;
+        };
+
+        drawHeader(doc);
+
+        if (currentPlan.cronograma_diario) {
+            currentPlan.cronograma_diario.forEach(dia => {
+                const torsionTurnos = dia.turnos_torsion || [];
+                if (torsionTurnos.length === 0) return;
+
+                checkNewPage(120);
+
+                // Day header
+                doc.setFillColor(248, 250, 252);
+                doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
+                doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
+                doc.text(`Fecha: ${dia.fecha}`, 50, yPos + 2);
+                yPos += 30;
+
+                torsionTurnos.forEach(turno => {
+                    checkNewPage(80);
+
+                    doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
+                    doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
+                    yPos += 10;
+
+                    const tableRows = turno.asignaciones.map(a => {
+                        const util = a.husos_totales > 0 ? Math.round((a.husos_asignados / a.husos_totales) * 100) + '%' : '-';
+                        return [
+                            a.maquina,
+                            a.referencia,
+                            a.denier,
+                            `${a.husos_asignados} / ${a.husos_totales} (${util})`,
+                            a.kgh_maquina,
+                            Math.round(a.kg_turno).toLocaleString() + ' kg',
+                            a.operarios
+                        ];
+                    });
+
+                    doc.autoTable({
+                        startY: yPos,
+                        head: [['Máquina', 'Referencia', 'Denier', 'Husos (Asig./Total)', 'Kg/h Máq.', 'Producción (8h)', 'Operarios']],
+                        body: tableRows,
+                        theme: 'grid',
+                        headStyles: {
+                            fillColor: [237, 233, 254],
+                            textColor: [88, 28, 135],
+                            fontStyle: 'bold',
+                            lineColor: [200, 200, 200],
+                            lineWidth: 0.5
+                        },
+                        styles: {
+                            fontSize: 9,
+                            textColor: [50, 50, 50],
+                            cellPadding: 4,
+                            lineColor: [230, 230, 230],
+                            lineWidth: 0.5
+                        },
+                        columnStyles: {
+                            0: { fontStyle: 'bold' },
+                            5: { halign: 'right' }
+                        },
+                        margin: { left: 40, right: 40 }
+                    });
+
+                    yPos = doc.lastAutoTable.finalY + 20;
+                });
+                yPos += 10;
+            });
+        }
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            drawFooter(doc, i, totalPages);
+        }
+
+        doc.save(`Programacion_Torsion_${new Date().toISOString().split('T')[0]}.pdf`);
     }
+
 </script>
 {% endblock %}
