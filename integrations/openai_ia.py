@@ -1,680 +1,706 @@
-"""
-MOTOR DE OPTIMIZACIÓN DE PRODUCCIÓN v5.0
-======================================
-Sistema de programación de producción de cabuyas (cuerdas) de polipropileno
-Planta con 5 máquinas de torsión (T11, T12, T14, T15, T16) y 28 puestos de rewinder
-
-PRINCIPIOS FUNDAMENTALES:
-- Ocupación SIEMPRE 95-100% de los 28 puestos rewinder
-- Estrategia "Denier Continuo" para minimizar cambios
-- Balance Torsión/Rewinder entre 0.95-1.15
-- Uso prioritario de T14 para deniers 12000/18000
-"""
-
-from openai import OpenAI
-import os
-import json
+#codigo version kimi 2.5
 from typing import List, Dict, Any, Tuple, Set
 import math
 from datetime import datetime, timedelta
+from collections import defaultdict
+import logging
 from dataclasses import dataclass, field
-from enum import Enum
+from copy import deepcopy
+import re
 
-
-class OptimizationStrategy(Enum):
-    MAX_OUTPUT = "max_output"  # Maximizar ocupación y producción
-    PRIORITY = "priority"      # Priorizar órdenes urgentes
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
-class DenierConfig:
-    """Configuración de un denier específico"""
-    name: str
-    kg_per_hour_rewinder: float
+class TorsionMachine:
+    machine_id: str
+    denier: int
+    kgh: float
+    husos: int = 1
+    assigned: bool = False
+    
+    def __hash__(self):
+        return hash(self.machine_id)
+    
+    def __eq__(self, other):
+        if isinstance(other, TorsionMachine):
+            return self.machine_id == other.machine_id
+        return False
+
+
+@dataclass
+class RewinderConfig:
+    denier: int
+    kg_per_hour: float
     n_optimo: int
-    machines_torsion: List[Dict] = field(default_factory=list)
-    
-    @property
-    def total_kgh_torsion(self) -> float:
-        """Capacidad total de torsión para este denier"""
-        return sum(m.get('kgh', 0) for m in self.machines_torsion)
-    
-    @property
-    def efficiency_ratio(self) -> float:
-        """Ratio de eficiencia: producción rewinder vs torsión"""
-        if self.total_kgh_torsion == 0:
-            return 0
-        return self.kg_per_hour_rewinder / self.total_kgh_torsion
 
 
 @dataclass
 class BacklogItem:
-    """Item pendiente en el backlog"""
     ref: str
-    descripcion: str
-    denier: str
-    kg_pendientes: float
-    kg_total: float
-    is_priority: bool = False
+    description: str
+    denier: int
+    kg_pending: float
+    priority: int = 0
+    client: str = ""
+    kg_initial: float = field(default=0.0)
+    completed: bool = False
+    completion_date: str = None
     
-    @property
-    def progress(self) -> float:
-        """Porcentaje de avance (0-1)"""
-        if self.kg_total == 0:
-            return 0
-        return 1 - (self.kg_pendientes / self.kg_total)
+    def __post_init__(self):
+        if self.kg_initial == 0.0:
+            self.kg_initial = self.kg_pending
 
 
-@dataclass
-class ShiftAssignment:
-    """Asignación para un turno específico"""
-    denier: str
-    posts: int
-    operarios: int
-    kg_producir: float
-    machines_torsion: List[Dict] = field(default_factory=list)
-    balance_ratio: float = 0.0
-
-
-@dataclass
-class ShiftResult:
-    """Resultado de un turno completo"""
-    nombre: str
-    horario: str
-    assignments: List[ShiftAssignment] = field(default_factory=list)
-    posts_ocupados: int = 0
-    posts_libres: int = 28
-    operarios_totales: int = 0
-    kg_total: float = 0.0
-    deniers_usados: Set[str] = field(default_factory=set)
-    
-    @property
-    def ocupacion_pct(self) -> float:
-        return (self.posts_ocupados / 28) * 100
-
+# ============================================================================
+# MOTOR DE OPTIMIZACIÓN V2 - MÁXIMA OCUPACIÓN
+# ============================================================================
 
 class MaxOutputOptimizer:
     """
-    Optimizador de producción con estrategia de máxima ocupación
-    
-    OBJETIVOS:
-    1. Ocupar 95-100% de los 28 puestos rewinder
-    2. Mantener balance Torsión/Rewinder entre 0.95-1.15
-    3. Minimizar cambios de denier entre turnos
-    4. Priorizar uso de T14 para deniers 12000/18000
+    Estrategia: 
+    1. Ocupar los 28 rewinders SIEMPRE (o máximo posible)
+    2. Asignar máquinas de torsión para balancear exactamente esa demanda
+    3. Mantener mismas referencias el mayor tiempo posible
+    4. Priorizar deniers con mejor ratio (kg/h por rewinder)
     """
     
-    # Constantes de configuración
-    TOTAL_POSTS = 28
-    MIN_OCUPACION_PCT = 95.0
-    TARGET_BALANCE_MIN = 0.95
-    TARGET_BALANCE_MAX = 1.15
-    SHIFT_DURATION_HOURS = 8
-    
-    # Definición de turnos
-    SHIFT_DEFS = [
-        {"nombre": "A", "horario": "06:00 - 14:00"},
-        {"nombre": "B", "horario": "14:00 - 22:00"},
-        {"nombre": "C", "horario": "22:00 - 06:00"},
-    ]
-    
     def __init__(self, 
-                 rewinder_capacities: Dict[str, Dict],
-                 torsion_capacities: Dict[str, Dict],
+                 torsion_machines: List[TorsionMachine],
+                 rewinder_configs: Dict[int, RewinderConfig],
+                 total_rewinders: int = 28,
+                 shift_hours: float = 8.0,
                  strategy: str = 'kg'):
-        """
-        Inicializa el optimizador
         
-        Args:
-            rewinder_capacities: Capacidades de rewinder por denier
-            torsion_capacities: Capacidades de torsión por denier
-            strategy: 'kg' (máxima producción) o 'priority' (prioridades)
-        """
-        self.rewinder_capacities = rewinder_capacities
-        self.torsion_capacities = torsion_capacities
+        self.total_rewinders = total_rewinders
+        self.shift_hours = shift_hours
+        self.rewinder_configs = rewinder_configs
         self.strategy = strategy
         
-        # Estado entre turnos
-        self.previous_shift_deniers: Set[str] = set()
-        self.denier_configs: Dict[str, DenierConfig] = {}
-        self._build_denier_configs()
+        # Agrupar máquinas por denier
+        self.machines_by_denier = defaultdict(list)
+        for m in torsion_machines:
+            self.machines_by_denier[m.denier].append(m)
+        
+        # Calcular eficiencia por denier (kg/h por rewinder usado)
+        self.denier_efficiency = {}
+        for denier, config in rewinder_configs.items():
+            torsion_cap = sum(m.kgh for m in self.machines_by_denier.get(denier, []))
+            if torsion_cap > 0:
+                # Cuántos kg de torsión tengo por cada rewinder que necesito
+                max_rewinders_needed = math.ceil(torsion_cap / config.kg_per_hour)
+                self.denier_efficiency[denier] = {
+                    'torsion_kgh': torsion_cap,
+                    'rewinder_rate': config.kg_per_hour,
+                    'max_rewinders': min(max_rewinders_needed, total_rewinders),
+                    'machines': self.machines_by_denier.get(denier, []),
+                    'n_optimo': config.n_optimo
+                }
+        
+        # Reglas de incompatibilidad de deniers
+        self.incompatible_deniers = {
+            2000: {3000, 4000, 6000, 9000, 12000, 18000},
+            3000: {2000, 6000, 12000, 18000},
+            4000: {2000, 6000, 12000, 18000},
+            6000: {2000, 3000, 4000, 9000, 18000},
+            9000: {2000, 6000},
+            12000: {2000, 3000, 4000},
+            18000: {2000, 3000, 4000, 6000}
+        }
+        logger.info(f"Optimizer ready: {len(torsion_machines)} machines, "
+                   f"{len(rewinder_configs)} denier configs")
     
-    def _build_denier_configs(self):
-        """Construye las configuraciones de deniers con sus capacidades"""
-        for denier_name, rw_data in self.rewinder_capacities.items():
-            torsion_data = self.torsion_capacities.get(denier_name, {})
-            
-            self.denier_configs[denier_name] = DenierConfig(
-                name=denier_name,
-                kg_per_hour_rewinder=rw_data.get('kg_per_hour', 0),
-                n_optimo=int(rw_data.get('n_optimo', 1)),
-                machines_torsion=torsion_data.get('machines', [])
-            )
-    
-    def _generate_valid_post_counts(self, n_optimo: int) -> List[int]:
-        """
-        Genera conteos válidos de puestos basados en N óptimo
-        
-        Regla: Cada operario maneja entre min_load y N puestos
-        min_load = max(1, ceil(0.8 * N))
-        """
-        if n_optimo <= 0:
-            return []
-        
-        min_load = max(1, math.ceil(0.8 * n_optimo))
-        valid = set()
-        
-        # Generar combinaciones para hasta 10 operarios
-        for num_operarios in range(1, 11):
-            min_posts = num_operarios * min_load
-            max_posts = num_operarios * n_optimo
-            
-            if min_posts > self.TOTAL_POSTS:
-                break
-                
-            for posts in range(min_posts, min(max_posts, self.TOTAL_POSTS) + 1):
-                valid.add(posts)
-        
-        return sorted(valid)
-    
-    def _calculate_optimal_posts(self, denier: str, available_posts: int) -> int:
-        """
-        Calcula el número óptimo de puestos para un denier
-        
-        Busca el mayor número válido de puestos que no exceda available_posts
-        """
-        config = self.denier_configs.get(denier)
-        if not config:
+    def calculate_optimal_rewinders(self, denier: int, target_posts: int = None) -> int:
+        """Calcula cuántos rewinders óptimos para un denier"""
+        if denier not in self.rewinder_configs:
             return 0
         
-        valid_posts = self._generate_valid_post_counts(config.n_optimo)
+        config = self.rewinder_configs[denier]
+        eff = self.denier_efficiency.get(denier, {})
         
-        # Encontrar el mayor válido que quepa en available_posts
-        for posts in sorted(valid_posts, reverse=True):
-            if posts <= available_posts:
-                return posts
+        if target_posts is None:
+            # Usar máximo posible para este denier
+            target = eff.get('max_rewinders', config.n_optimo)
+        else:
+            target = target_posts
         
-        # Si ninguno cabe, tomar el menor válido (al menos algo de producción)
-        return valid_posts[0] if valid_posts else 0
+        # Ajustar a múltiplos válidos de N óptimo
+        n_opt = config.n_optimo
+        valid = []
+        for k in range(1, (self.total_rewinders // max(n_opt - 1, 1)) + 2):
+            for p in range(k * n_opt - 1, k * n_opt + 2):  # \u00b11 flexibilidad
+                if 1 <= p <= self.total_rewinders:
+                    valid.append(p)
+        
+        valid = sorted(set(valid))
+        closest = min(valid, key=lambda x: abs(x - target))
+        return closest
     
-    def _calculate_production_capacity(self, denier: str, num_posts: int) -> Dict:
+    def find_best_denier_combination(self, available_posts: int, 
+                                    active_items: List[BacklogItem],
+                                    current_deniers: Set[int] = None) -> List[Dict]:
         """
-        Calcula capacidades de producción para un denier con N puestos
-        
-        Returns:
-            Dict con kg_rewinder, kg_torsion, balance_ratio
+        Encuentra la mejor combinación de deniers para llenar exactamente los puestos disponibles.
+        Prioriza: 1) Deniers actuales (no cambiar), 2) Mayor eficiencia, 3) Mayor backlog
         """
-        config = self.denier_configs.get(denier)
-        if not config:
-            return {'kg_rewinder': 0, 'kg_torsion': 0, 'ratio': 0}
+        current_deniers = current_deniers or set()
         
-        # Capacidad rewinder (lo que se puede consumir)
-        kg_rewinder = num_posts * config.kg_per_hour_rewinder * self.SHIFT_DURATION_HOURS
+        # Filtrar deniers con backlog activo
+        deniers_with_demand = set(item.denier for item in active_items if item.kg_pending > 0.1)
         
-        # Capacidad torsión (lo que se puede producir)
-        kg_torsion = config.total_kgh_torsion * self.SHIFT_DURATION_HOURS
-        
-        # Balance ratio (rewinder / torsión)
-        # > 1: Faltan máquinas de torsión
-        # < 1: Sobran máquinas de torsión
-        ratio = kg_rewinder / kg_torsion if kg_torsion > 0 else float('inf')
-        
-        return {
-            'kg_rewinder': kg_rewinder,
-            'kg_torsion': kg_torsion,
-            'ratio': ratio
-        }
-    
-    def _score_denier(self, denier: str, backlog_item: BacklogItem, 
-                     is_continuous: bool) -> float:
-        """
-        Calcula un score para priorizar deniers
-        
-        Factores:
-        - Continuidad (+1000 puntos)
-        - Eficiencia (kg/h de rewinder)
-        - Backlog pendiente
-        - Prioridad del item
-        """
-        config = self.denier_configs.get(denier)
-        if not config:
-            return -float('inf')
-        
-        score = 0.0
-        
-        # Bonus por continuidad (MUY IMPORTANTE)
-        if is_continuous:
-            score += 1000
-        
-        # Eficiencia de producción
-        score += config.kg_per_hour_rewinder * 10
-        
-        # Volumen pendiente
-        score += backlog_item.kg_pendientes / 1000
-        
-        # Prioridad
-        if backlog_item.is_priority:
-            score += 500
-        
-        # Bonus por progreso parcial (terminar lo empezado)
-        if backlog_item.progress > 0 and backlog_item.progress < 1:
-            score += 200
-        
-        return score
-    
-    def _find_best_denier_combination(self, 
-                                     backlog_items: List[BacklogItem],
-                                     posts_target: int = 28) -> List[Dict]:
-        """
-        Encuentra la mejor combinación de deniers para llenar los puestos objetivo
-        
-        Algoritmo:
-        1. Ordenar deniers por score (continuidad > eficiencia > backlog)
-        2. Seleccionar deniers hasta llenar posts_target
-        3. Ajustar posts del último denier si es necesario
-        """
-        if not backlog_items:
-            return []
-        
-        # Calcular scores
-        scored_deniers = []
-        for item in backlog_items:
-            is_continuous = item.denier in self.previous_shift_deniers
-            score = self._score_denier(item.denier, item, is_continuous)
-            
-            scored_deniers.append({
-                'item': item,
-                'score': score,
-                'is_continuous': is_continuous
-            })
-        
-        # Ordenar por score descendente
-        scored_deniers.sort(key=lambda x: x['score'], reverse=True)
-        
-        # Seleccionar deniers
-        selected = []
-        posts_used = 0
-        
-        for sd in scored_deniers:
-            if posts_used >= posts_target:
-                break
-            
-            item = sd['item']
-            available = posts_target - posts_used
-            
-            # Calcular puestos óptimos
-            posts = self._calculate_optimal_posts(item.denier, available)
-            
-            if posts > 0:
-                # Verificar balance
-                capacity = self._calculate_production_capacity(item.denier, posts)
-                
-                # Si el ratio es muy alto (>1.5), quizás necesitemos más torsión
-                # o ajustar los puestos
-                if capacity['ratio'] > 1.5 and posts > 3:
-                    # Intentar con menos puestos para mejorar balance
-                    for reduced_posts in sorted(self._generate_valid_post_counts(
-                        self.denier_configs[item.denier].n_optimo), reverse=True):
-                        if reduced_posts < posts:
-                            reduced_capacity = self._calculate_production_capacity(
-                                item.denier, reduced_posts)
-                            if self.TARGET_BALANCE_MIN <= reduced_capacity['ratio'] <= self.TARGET_BALANCE_MAX:
-                                posts = reduced_posts
-                                capacity = reduced_capacity
-                                break
-                
-                selected.append({
-                    'item': item,
-                    'posts': posts,
-                    'capacity': capacity,
-                    'is_continuous': sd['is_continuous']
-                })
-                posts_used += posts
-        
-        # Si quedan puestos libres (>2), intentar llenar con ajustes
-        remaining = posts_target - posts_used
-        if remaining >= 2 and selected:
-            # Intentar aumentar posts del último denier seleccionado
-            last = selected[-1]
-            extra_posts = self._calculate_optimal_posts(
-                last['item'].denier, 
-                last['posts'] + remaining
-            )
-            if extra_posts > last['posts']:
-                last['posts'] = extra_posts
-                last['capacity'] = self._calculate_production_capacity(
-                    last['item'].denier, extra_posts)
-                posts_used = sum(s['posts'] for s in selected)
-        
-        return selected
-    
-    def _assign_torsion_machines(self, denier: str, 
-                                 target_kg: float) -> List[Dict]:
-        """
-        Asigna TODAS las máquinas de torsión disponibles para un denier
-        
-        A diferencia de la lógica anterior que asignaba parcialmente,
-        esta asigna todas las máquinas para maximizar producción
-        """
-        config = self.denier_configs.get(denier)
-        if not config or not config.machines_torsion:
-            return []
-        
-        assignments = []
-        total_kg = 0.0
-        
-        # Ordenar máquinas por capacidad (descendente)
-        machines = sorted(config.machines_torsion, 
-                         key=lambda m: m.get('kgh', 0), 
-                         reverse=True)
-        
-        for machine in machines:
-            machine_id = machine.get('machine_id', 'Unknown')
-            kgh = machine.get('kgh', 0)
-            husos = machine.get('husos', 1)
-            
-            if kgh <= 0:
+        candidates = []
+        for denier in deniers_with_demand:
+            if denier not in self.denier_efficiency:
                 continue
             
-            kg_turno = kgh * self.SHIFT_DURATION_HOURS
-            total_kg += kg_turno
+            eff = self.denier_efficiency[denier]
+            total_backlog = sum(item.kg_pending for item in active_items if item.denier == denier)
             
-            assignments.append({
-                'maquina': machine_id,
+            # Calcular posts óptimos para este denier solo
+            optimal_posts = self.calculate_optimal_rewinders(denier)
+            
+            candidates.append({
                 'denier': denier,
-                'husos_asignados': husos,
-                'husos_totales': husos,
-                'kgh_maquina': round(kgh, 2),
-                'kg_turno': round(kg_turno, 1),
-                'operarios': 1
+                'efficiency': eff['torsion_kgh'] / max(optimal_posts * eff['rewinder_rate'], 1),
+                'backlog_kg': total_backlog,
+                'has_priority': any(item.priority > 0 for item in active_items if item.denier == denier),
+                'optimal_posts': optimal_posts,
+                'torsion_kgh': eff['torsion_kgh'],
+                'machines_available': len(eff['machines']),
+                'is_current': denier in current_deniers
             })
         
-        return assignments
+        if not candidates:
+            return []
+        
+        # Ordenar: 
+        # 1. Por estrategia (Prioridad primero si aplica)
+        # 2. Por deniers actuales (continuidad)
+        # 3. Por mayor volumen de backlog
+        # 4. Por eficiencia
+        candidates.sort(key=lambda x: (
+            -(x['has_priority'] if self.strategy == 'priority' else 0),
+            not x['is_current'],  # False (actuales) primero
+            -x['backlog_kg'],     # Mayor backlog primero
+            -x['efficiency']      # Mayor eficiencia
+        ))
+        
+        # Seleccionar combinación que llene los puestos
+        combination = []
+        # Aplicar lógica de repartición equitativa (SHARES)
+        # Si hay más de 2 deniers candidatos, limitar el espacio proporcionalmente
+        num_candidates = len([c for c in candidates if c['backlog_kg'] > 0.1])
+        max_posts_per_denier = available_posts
+        if num_candidates >= 3:
+            max_posts_per_denier = math.floor(available_posts / 2) + 2 # Max ~16 posts per denier
+        elif num_candidates == 2:
+            max_posts_per_denier = math.floor(available_posts * 0.7) # Max ~19 posts per denier
+
+        posts_used = 0
+        
+        # Primero intentar mantener deniers actuales si tienen demanda
+        for cand in candidates:
+            is_incompatible = any(cand['denier'] in self.incompatible_deniers.get(used['denier'], set()) for used in combination)
+            if cand['is_current'] and not is_incompatible and posts_used + cand['optimal_posts'] <= available_posts:
+                combination.append(cand)
+                posts_used += cand['optimal_posts']
+        
+        # Luego llenar con nuevos deniers de mayor eficiencia
+        for cand in candidates:
+            if cand not in combination:
+                is_incompatible = any(cand['denier'] in self.incompatible_deniers.get(used['denier'], set()) for used in combination)
+                if not is_incompatible and posts_used + min(cand['optimal_posts'], max_posts_per_denier) <= available_posts:
+                    cand['optimal_posts'] = min(cand['optimal_posts'], max_posts_per_denier)
+                    combination.append(cand)
+                    posts_used += cand['optimal_posts']
+                elif available_posts - posts_used >= 2:  # Espacio para mínimo útil
+                    # Ajustar a espacio disponible
+                    adjusted_posts = self.calculate_optimal_rewinders(
+                        cand['denier'], 
+                        available_posts - posts_used
+                    )
+                    if adjusted_posts > 0:
+                        cand['optimal_posts'] = adjusted_posts
+                        combination.append(cand)
+                        posts_used += adjusted_posts
+        
+        # Si aún sobran puestos, expandir deniers existentes
+        remaining = available_posts - posts_used
+        if remaining > 0 and combination:
+            # Agregar más rewinders al denier con mayor backlog
+            biggest = max(combination, key=lambda x: x['backlog_kg'])
+            extra_posts_needed = self.calculate_optimal_rewinders(biggest['denier'], biggest['optimal_posts'] + remaining)
+            actual_extra = extra_posts_needed - biggest['optimal_posts']
+            if actual_extra <= remaining:
+                biggest['optimal_posts'] = extra_posts_needed
+                remaining -= actual_extra
+        
+        return combination
     
-    def optimize_shift(self, 
-                       backlog_items: List[BacklogItem],
-                       shift_index: int) -> ShiftResult:
+    def assign_shift_max_occupation(self, 
+                                   active_items: List[BacklogItem],
+                                   previous_assignments: List[Dict] = None) -> Dict[str, Any]:
         """
-        Optimiza un turno individual
-        
-        1. Selecciona combinación de deniers para llenar 95-100% de puestos
-        2. Asigna todas las máquinas de torsión disponibles
-        3. Calcula balance ratio
-        4. Actualiza estado para siguiente turno
+        Asigna un turno ocupando el 100% de rewinders posible.
         """
-        shift_def = self.SHIFT_DEFS[shift_index % len(self.SHIFT_DEFS)]
+        previous_assignments = previous_assignments or []
+        current_deniers = set(a['denier'] for a in previous_assignments)
         
-        # Filtrar items con backlog real
-        active_items = [item for item in backlog_items if item.kg_pendientes > 0.1]
-        
-        if not active_items:
-            return ShiftResult(
-                nombre=shift_def['nombre'],
-                horario=shift_def['horario'],
-                posts_libres=self.TOTAL_POSTS
-            )
-        
-        # Encontrar mejor combinación
-        combination = self._find_best_denier_combination(active_items, self.TOTAL_POSTS)
+        # Encontrar combinación óptima para llenar 28 puestos
+        combination = self.find_best_denier_combination(
+            self.total_rewinders, 
+            active_items,
+            current_deniers
+        )
         
         if not combination:
-            return ShiftResult(
-                nombre=shift_def['nombre'],
-                horario=shift_def['horario'],
-                posts_libres=self.TOTAL_POSTS
-            )
+            return None
         
-        # Crear asignaciones
         assignments = []
-        total_posts = 0
-        total_operarios = 0
+        machines_used = set()
         total_kg = 0
-        deniers_used = set()
         
         for combo in combination:
-            item = combo['item']
-            posts = combo['posts']
-            capacity = combo['capacity']
+            denier = combo['denier']
+            num_rewinders = combo['optimal_posts']
             
-            # Calcular operarios necesarios
-            config = self.denier_configs[item.denier]
-            operarios = math.ceil(posts / config.n_optimo)
+            # Calcular capacidad de producción
+            rw_rate = self.rewinder_configs[denier].kg_per_hour
+            rw_capacity_kgh = num_rewinders * rw_rate
             
-            # Asignar máquinas de torsión (TODAS las disponibles)
-            torsion_machines = self._assign_torsion_machines(item.denier, capacity['kg_torsion'])
+            # Asignar TODAS las máquinas de torsión disponibles para este denier
+            available_machines = [
+                m for m in self.machines_by_denier.get(denier, [])
+                if m.machine_id not in machines_used
+            ]
             
-            # Calcular kg real a producir (mínimo entre capacidad rewinder y backlog)
-            kg_a_producir = min(capacity['kg_rewinder'], item.kg_pendientes)
+            if not available_machines:
+                continue
             
-            assignment = ShiftAssignment(
-                denier=item.denier,
-                posts=posts,
-                operarios=operarios,
-                kg_producir=kg_a_producir,
-                machines_torsion=torsion_machines,
-                balance_ratio=capacity['ratio']
-            )
+            total_torsion_kgh = sum(m.kgh for m in available_machines)
+            
+            # Calcular kg a producir (limitado por lo que necesita el backlog)
+            items_for_denier = [item for item in active_items 
+                              if item.denier == denier and item.kg_pending > 0.1]
+            max_needed = sum(item.kg_pending for item in items_for_denier)
+            
+            # Producción = mínimo entre capacidad rewinder y demanda
+            production_capacity = rw_capacity_kgh * self.shift_hours
+            production_kg = min(production_capacity, max_needed)
+            
+            # Si no hay demanda suficiente, ajustar rewinders hacia abajo
+            if production_kg < production_capacity * 0.5:
+                # Reducir rewinders proporcionalmente
+                ratio = max_needed / (production_capacity + 0.1)
+                adjusted_posts = max(1, math.floor(num_rewinders * ratio))
+                num_rewinders = self.calculate_optimal_rewinders(denier, adjusted_posts)
+                rw_capacity_kgh = num_rewinders * rw_rate
+                production_kg = min(rw_capacity_kgh * self.shift_hours, max_needed)
+            
+            # Detalle de máquinas
+            torsion_details = []
+            for m in available_machines:
+                machines_used.add(m.machine_id)
+                torsion_details.append({
+                    'machine_id': m.machine_id,
+                    'kgh': m.kgh,
+                    'kg_shift': m.kgh * self.shift_hours,
+                    'husos': m.husos
+                })
+            
+            # Referencias involucradas
+            refs = [item.ref for item in items_for_denier[:5]]  # Top 5
+            
+            assignment = {
+                'denier': denier,
+                'references': refs,
+                'rewinder_posts': num_rewinders,
+                'rewinder_operators': math.ceil(num_rewinders / combo['n_optimo']),
+                'rewinder_rate_kgh': rw_capacity_kgh,
+                'torsion_machines': [m.machine_id for m in available_machines],
+                'torsion_rate_kgh': total_torsion_kgh,
+                'torsion_details': torsion_details,
+                'balance_ratio': round(rw_capacity_kgh / max(total_torsion_kgh, 1), 2),
+                'kg_planned': round(production_kg, 1),
+                'efficiency_score': round(combo.get('efficiency', 0), 3)
+            }
             
             assignments.append(assignment)
-            total_posts += posts
-            total_operarios += operarios
-            total_kg += kg_a_producir
-            deniers_used.add(item.denier)
+            total_kg += production_kg
         
-        # Actualizar deniers del turno anterior para continuidad
-        self.previous_shift_deniers = deniers_used
-        
-        return ShiftResult(
-            nombre=shift_def['nombre'],
-            horario=shift_def['horario'],
-            assignments=assignments,
-            posts_ocupados=total_posts,
-            posts_libres=self.TOTAL_POSTS - total_posts,
-            operarios_totales=total_operarios,
-            kg_total=total_kg,
-            deniers_usados=deniers_used
-        )
-    
-    def generate_schedule(self, 
-                         backlog_summary: Dict[str, Any],
-                         shifts: List[Dict] = None) -> Dict[str, Any]:
-        """
-        Genera el cronograma completo de producción
-        
-        Returns:
-            Dict con el escenario completo en formato compatible con la API
-        """
-        # Convertir backlog_summary a BacklogItems
-        backlog_items = []
-        if backlog_summary:
-            for ref, data in backlog_summary.items():
-                if data.get('kg_total', 0) > 0.1:
-                    backlog_items.append(BacklogItem(
-                        ref=ref,
-                        descripcion=data.get('description', ''),
-                        denier=data.get('denier', ''),
-                        kg_pendientes=float(data['kg_total']),
-                        kg_total=float(data['kg_total']),
-                        is_priority=data.get('is_priority', False)
-                    ))
-        
-        if not backlog_items:
-            return {
-                "scenario": {
-                    "resumen_global": {
-                        "comentario_estrategia": "No hay items en el backlog.",
-                        "ocupacion_promedio": 0,
-                        "alerta_capacidad": "⚠️ Sin backlog para programar"
-                    },
-                    "cronograma_diario": []
-                }
-            }
-        
-        # Configurar calendario
-        start_date = datetime.now() + timedelta(days=1)
-        if shifts and len(shifts) > 0:
-            try:
-                start_date = datetime.strptime(shifts[0]['date'], '%Y-%m-%d')
-            except:
-                pass
-        
-        shifts_dict = {s['date']: s['working_hours'] for s in shifts} if shifts else {}
-        
-        # Simulación de turnos
-        cronograma = []
-        tabla_finalizacion = {}
-        total_kg_inicial = sum(item.kg_pendientes for item in backlog_items)
-        ocupaciones = []
-        
-        current_date = start_date
-        max_days = 60  # Límite de seguridad
-        
-        for day in range(max_days):
-            # Verificar si queda backlog
-            active_items = [item for item in backlog_items if item.kg_pendientes > 0.1]
-            if not active_items:
-                break
-            
-            date_str = current_date.strftime("%Y-%m-%d")
-            working_hours = float(shifts_dict.get(date_str, 24))
-            num_shifts = int(working_hours // self.SHIFT_DURATION_HOURS)
-            
-            day_entry = {
-                "fecha": date_str,
-                "turnos": [],
-                "turnos_torsion": [],
-                "debug_info": {}
-            }
-            
-            # Procesar cada turno del día
-            last_shift_result = None
-            for shift_idx in range(num_shifts):
-                # Re-filtrar items activos
-                current_active = [item for item in backlog_items if item.kg_pendientes > 0.1]
-                if not current_active:
-                    break
-                
-                # Optimizar turno
-                shift_result = self.optimize_shift(current_active, shift_idx)
-                last_shift_result = shift_result
-                ocupaciones.append(shift_result.ocupacion_pct)
-                
-                # Preparar datos de rewinder para respuesta
-                rewinder_data = []
-                for assign in shift_result.assignments:
-                    rewinder_data.append({
-                        "referencia": assign.denier,
-                        "descripcion": next((i.descripcion for i in current_active 
-                                           if i.denier == assign.denier), ''),
-                        "denier": assign.denier,
-                        "puestos": assign.posts,
-                        "operarios": assign.operarios,
-                        "kg_producidos": round(assign.kg_producir, 1)
-                    })
-                    
-                    # Actualizar backlog
-                    for item in backlog_items:
-                        if item.denier == assign.denier:
-                            item.kg_pendientes -= assign.kg_producir
-                            if item.kg_pendientes <= 0.1 and assign.denier not in tabla_finalizacion:
-                                tabla_finalizacion[assign.denier] = {
-                                    "referencia": assign.denier,
-                                    "descripcion": item.descripcion,
-                                    "fecha_finalizacion": f"{date_str} Turno {shift_result.nombre}",
-                                    "puestos_promedio": assign.posts,
-                                    "kg_totales": item.kg_total
-                                }
-                            break
-                
-                # Preparar datos de torsión
-                torsion_data = []
-                for assign in shift_result.assignments:
-                    for machine in assign.machines_torsion:
-                        torsion_data.append({
-                            **machine,
-                            "referencia": assign.denier
-                        })
-                
-                # Agregar turno al día
-                day_entry["turnos"].append({
-                    "nombre": shift_result.nombre,
-                    "horario": shift_result.horario,
-                    "operarios_requeridos": shift_result.operarios_totales,
-                    "asignaciones": rewinder_data,
-                    "posts_ocupados": shift_result.posts_ocupados,
-                    "posts_libres": shift_result.posts_libres,
-                    "deniers": list(shift_result.deniers_usados)
-                })
-                
-                day_entry["turnos_torsion"].append({
-                    "nombre": shift_result.nombre,
-                    "horario": shift_result.horario,
-                    "operarios_requeridos": len(torsion_data),
-                    "asignaciones": torsion_data
-                })
-            
-            # Info de debug
-            balance_logs = []
-            if last_shift_result and last_shift_result.assignments:
-                for assign in last_shift_result.assignments:
-                    balance_logs.append({
-                        "denier": assign.denier,
-                        "balance_ratio": round(assign.balance_ratio, 2),
-                        "posts": assign.posts,
-                        "kg_rewinder": round(assign.kg_producir, 1),
-                        "kg_torsion": round(sum(m['kg_turno'] for m in assign.machines_torsion), 1)
-                    })
-            
-            day_entry["debug_info"] = {
-                "balance_torsion": balance_logs,
-                "ocupacion_rewinder_avg": f"{last_shift_result.posts_ocupados if last_shift_result else 0} / 28",
-                "puestos_libres_promedio": last_shift_result.posts_libres if last_shift_result else 28
-            }
-            
-            cronograma.append(day_entry)
-            current_date += timedelta(days=1)
-        
-        # Calcular métricas finales
-        ocupacion_promedio = sum(ocupaciones) / len(ocupaciones) if ocupaciones else 0
-        
-        # Generar datos para gráfica
-        labels = [d['fecha'] for d in cronograma]
-        kg_data = []
-        ops_data = []
-        
-        for day in cronograma:
-            kg_dia = sum(t['asignaciones'][0]['kg_producidos'] 
-                        for t in day['turnos'] if t['asignaciones'])
-            kg_data.append(kg_dia)
-            
-            ops_max = max((t['operarios_requeridos'] for t in day['turnos']), default=0)
-            ops_data.append(ops_max)
-        
-        # Alerta de capacidad
-        alerta = "✅ Plan optimizado para máxima ocupación"
-        if ocupacion_promedio < self.MIN_OCUPACION_PCT:
-            alerta = f"⚠️ Ocupación promedio {ocupacion_promedio:.1f}% - Por debajo del objetivo 95%"
+        # Calcular ocupación real
+        total_posts_used = sum(a['rewinder_posts'] for a in assignments)
         
         return {
-            "scenario": {
-                "resumen_global": {
-                    "comentario_estrategia": "Estrategia: Máxima Ocupación (95-100%) + Balance Torsión/Rewinder",
-                    "fecha_finalizacion_total": cronograma[-1]['fecha'] if cronograma else "N/A",
-                    "total_dias_programados": len(cronograma),
-                    "kg_totales_plan": round(total_kg_inicial, 1),
-                    "ocupacion_promedio": round(ocupacion_promedio, 1),
-                    "fecha_capacidad_completa": "Variable",
-                    "alerta_capacidad": alerta
-                },
-                "tabla_finalizacion_referencias": list(tabla_finalizacion.values()),
-                "cronograma_diario": cronograma,
-                "datos_para_grafica": {
-                    "labels": labels,
-                    "dataset_kg_produccion": kg_data,
-                    "dataset_operarios": ops_data
-                }
+            'assignments': assignments,
+            'machines_used': list(machines_used),
+            'posts_used': total_posts_used,
+            'posts_remaining': self.total_rewinders - total_posts_used,
+            'occupation_rate': round(total_posts_used / self.total_rewinders * 100, 1),
+            'total_kg_planned': round(total_kg, 1),
+            'deniers_used': list(set(a['denier'] for a in assignments))
+        }
+
+
+# ============================================================================
+# GENERADOR DE CRONOGRAMA CON CONTINUIDAD
+# ============================================================================
+
+def generate_optimized_schedule(
+    backlog_summary: Dict[str, Any],
+    torsion_capacities_db: Dict[str, Any],
+    rewinder_capacities_db: Dict[str, Any],
+    total_rewinders: int = 28,
+    shift_hours: float = 8.0,
+    shifts_per_day: int = 3,
+    max_days: int = 60,
+    start_date: datetime = None,
+    min_occupation: float = 0.90,  # 90% mínimo de ocupación
+    strategy: str = 'kg'
+) -> Dict[str, Any]:
+    """
+    Genera cronograma optimizado para máxima ocupación y output.
+    """
+    
+    # Cargar configuraciones
+    rewinder_configs = {}
+    for denier_str, config in rewinder_capacities_db.items():
+        try:
+            denier_val = int(re.search(r'\d+', denier_str).group())
+            rewinder_configs[denier_val] = RewinderConfig(
+                denier=denier_val,
+                kg_per_hour=float(config.get('kg_per_hour', 0)),
+                n_optimo=int(config.get('n_optimo', 1))
+            )
+        except Exception as e:
+            logger.warning(f"Error parsing rewinder config {denier_str}: {e}")
+    
+    torsion_machines = []
+    for denier_str, config in torsion_capacities_db.items():
+        try:
+            denier_val = int(re.search(r'\d+', denier_str).group())
+            for m in config.get('machines', []):
+                torsion_machines.append(TorsionMachine(
+                    machine_id=m.get('machine_id', f'UNKNOWN_{denier_val}'),
+                    denier=denier_val,
+                    kgh=float(m.get('kgh', 0)),
+                    husos=int(m.get('husos', 1))
+                ))
+        except Exception as e:
+            logger.warning(f"Error parsing torsion config {denier_str}: {e}")
+    
+    # Cargar backlog
+    backlog_items = []
+    for code, data in backlog_summary.items():
+        try:
+            kg = float(data.get('kg_total', 0))
+            if kg > 0.1:
+                denier_val = int(re.search(r'\d+', str(data.get('denier', '0'))).group())
+                backlog_items.append(BacklogItem(
+                    ref=code,
+                    description=data.get('description', ''),
+                    denier=denier_val,
+                    kg_pending=kg,
+                    priority=1 if data.get('is_priority') else 0
+                ))
+        except Exception as e:
+            logger.warning(f"Error parsing backlog item {code}: {e}")
+    
+    if not backlog_items:
+        return {"error": "No backlog items to process"}
+    
+    # Inicializar optimizador
+    optimizer = MaxOutputOptimizer(
+        torsion_machines=torsion_machines,
+        rewinder_configs=rewinder_configs,
+        total_rewinders=total_rewinders,
+        shift_hours=shift_hours,
+        strategy=strategy
+    )
+    
+    # Generar cronograma
+    if start_date is None:
+        start_date = datetime.now() + timedelta(days=1)
+    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    cronograma = []
+    completion_tracking = {}
+    total_kg_initial = sum(item.kg_initial for item in backlog_items)
+    
+    # Tracking de continuidad
+    previous_shift_assignments = []
+    previous_day_deniers = set()
+    
+    current_date = start_date
+    
+    for day in range(max_days):
+        active_items = [item for item in backlog_items if item.kg_pending > 0.1]
+        if not active_items:
+            break
+        
+        date_str = current_date.strftime("%Y-%m-%d")
+        day_entry = {
+            "fecha": date_str,
+            "turnos": [],
+            "turnos_torsion": [],
+            "resumen_dia": {
+                "kg_producidos": 0,
+                "ocupacion_promedio": 0,
+                "cambios_denier": 0,
+                "items_completados": []
             }
         }
+        
+        day_deniers = set()
+        
+        for shift_num in range(shifts_per_day):
+            shift_name = chr(ord('A') + shift_num)
+            
+            # Ejecutar optimización manteniendo continuidad
+            shift_result = optimizer.assign_shift_max_occupation(
+                active_items,
+                previous_shift_assignments
+            )
+            
+            if not shift_result:
+                continue
+            
+            # Verificar ocupación mínima
+            if shift_result['occupation_rate'] < min_occupation * 100:
+                logger.warning(f"Low occupation on {date_str} Turno {shift_name}: "
+                               f"{shift_result['occupation_rate']}%")
+            
+            # Actualizar backlog
+            kg_produced = 0
+            for assignment in shift_result['assignments']:
+                denier = assignment['denier']
+                kg_to_assign = assignment['kg_planned']
+                
+                items_for_denier = [item for item in backlog_items 
+                                   if item.denier == denier and item.kg_pending > 0.1]
+                
+                for item in items_for_denier:
+                    if kg_to_assign <= 0:
+                        break
+                    actual = min(item.kg_pending, kg_to_assign)
+                    item.kg_pending -= actual
+                    kg_to_assign -= actual
+                    kg_produced += actual
+                    
+                    # Track usage for averages (summary table)
+                    if item.ref not in completion_tracking:
+                        if "_temp_tracking" not in locals(): _temp_tracking = {}
+                        if item.ref not in _temp_tracking: 
+                            _temp_tracking[item.ref] = {"puestos_acum": 0, "turnos_cont": 0}
+                        _temp_tracking[item.ref]["puestos_acum"] += assignment['rewinder_posts']
+                        _temp_tracking[item.ref]["turnos_cont"] += 1
+
+                    if item.kg_pending <= 0.1 and item.ref not in completion_tracking:
+                        item.completed = True
+                        item.completion_date = f"{date_str} Turno {shift_name}"
+                        # Finalize mapping from temp or current
+                        p_acum = _temp_tracking[item.ref]["puestos_acum"] if "_temp_tracking" in locals() and item.ref in _temp_tracking else assignment['rewinder_posts']
+                        t_cont = _temp_tracking[item.ref]["turnos_cont"] if "_temp_tracking" in locals() and item.ref in _temp_tracking else 1
+                        
+                        completion_tracking[item.ref] = {
+                            "referencia": item.ref,
+                            "descripcion": item.description,
+                            "fecha_finalizacion": item.completion_date,
+                            "kg_totales": item.kg_initial,
+                            "denier": item.denier,
+                            "puestos_promedio": round(p_acum / t_cont, 1)
+                        }
+                        day_entry["resumen_dia"]["items_completados"].append(item.ref)
+                
+                day_deniers.add(denier)
+            
+            # Formatear turno Rewinder
+            turno_formatted = {
+                "nombre": shift_name,
+                "horario": f"{6 + shift_num*8:02d}:00 - {14 + shift_num*8:02d}:00",
+                "asignaciones": [],
+                "operarios_requeridos": 0,
+                "estadisticas": {
+                    "posts_ocupados": shift_result['posts_used'],
+                    "posts_libres": shift_result['posts_remaining'],
+                    "ocupacion_porcentaje": shift_result['occupation_rate'],
+                    "kg_producidos": round(kg_produced, 1),
+                    "maquinas_usadas": len(shift_result['machines_used']),
+                    "deniers_activos": len(shift_result['deniers_used'])
+                }
+            }
+            
+            # Formatear turno Torsi\u00f3n
+            turno_torsion = {
+                "nombre": shift_name,
+                "horario": turno_formatted["horario"],
+                "asignaciones": [],
+                "operarios_requeridos": 0
+            }
+            
+            total_rw_ops = 0
+            for assignment in shift_result['assignments']:
+                # Rewinder assign
+                turno_formatted["asignaciones"].append({
+                    "referencia": f"Denier {assignment['denier']}",
+                    "descripcion": ", ".join(assignment['references']),
+                    "puestos": assignment['rewinder_posts'],
+                    "operarios": assignment['rewinder_operators'],
+                    "kg_producidos": assignment['kg_planned']
+                })
+                total_rw_ops += assignment['rewinder_operators']
+                
+                # Torsion assign
+                for m_detail in assignment['torsion_details']:
+                    turno_torsion["asignaciones"].append({
+                        "maquina": m_detail['machine_id'],
+                        "referencia": ", ".join(assignment['references']),
+                        "denier": assignment['denier'],
+                        "husos_asignados": m_detail['husos'],
+                        "husos_totales": m_detail['husos'], # Simplificado
+                        "kgh_maquina": m_detail['kgh'],
+                        "kg_turno": m_detail['kg_shift'],
+                        "operarios": 1
+                    })
+            
+            turno_formatted["operarios_requeridos"] = total_rw_ops
+            turno_torsion["operarios_requeridos"] = len(turno_torsion["asignaciones"])
+            
+            day_entry["turnos"].append(turno_formatted)
+            day_entry["turnos_torsion"].append(turno_torsion)
+            day_entry["resumen_dia"]["kg_producidos"] += kg_produced
+            previous_shift_assignments = shift_result['assignments']
+        
+        # Calcular cambios de denier respecto al d\u00eda anterior
+        if previous_day_deniers:
+            changes = len(day_deniers - previous_day_deniers)
+            day_entry["resumen_dia"]["cambios_denier"] = changes
+        
+        previous_day_deniers = day_deniers
+        # Populate debug info for UI transparency
+        daily_denier_stats = defaultdict(lambda: {"supply": 0, "demand": 0})
+        for t_idx, t_rew in enumerate(day_entry["turnos"]):
+            t_torsion = day_entry["turnos_torsion"][t_idx]
+            for asig_torsion in t_torsion["asignaciones"]:
+                daily_denier_stats[asig_torsion["denier"]]["supply"] += asig_torsion["kg_turno"]
+            for asig_rew in t_rew["asignaciones"]:
+                d_match = re.search(r'\d+', asig_rew["referencia"])
+                if d_match:
+                    d_key = int(d_match.group())
+                    daily_denier_stats[d_key]["demand"] += asig_rew["kg_producidos"]
+        
+        balance_logs = []
+        for d_key, stats in daily_denier_stats.items():
+            balance_logs.append({
+                "denier": d_key,
+                "suministro_kg": round(stats["supply"], 1),
+                "demanda_kg": round(stats["demand"], 1),
+                "balance_ratio": round((stats["supply"] / max(stats["demand"], 1)) * 100, 1)
+            })
+            
+        avg_posts_free = sum(t['estadisticas']['posts_libres'] for t in day_entry["turnos"]) / max(len(day_entry["turnos"]), 1)
+        day_entry["debug_info"] = {
+            "balance_torsion": balance_logs,
+            "ocupacion_rewinder_avg": f"{round(sum(t['estadisticas']['ocupacion_porcentaje'] for t in day_entry['turnos'])/max(len(day_entry['turnos']),1), 1)}%",
+            "puestos_libres_promedio": round(avg_posts_free, 1)
+        }
+        day_entry["resumen_dia"]["ocupacion_promedio"] = round(sum(t['estadisticas']['ocupacion_porcentaje'] for t in day_entry['turnos'])/max(len(day_entry['turnos']),1), 1)
+
+        cronograma.append(day_entry)
+        current_date += timedelta(days=1)
+    
+    # An\u00e1lisis final
+    total_kg_produced = total_kg_initial - sum(item.kg_pending for item in backlog_items)
+    
+    # Alertas de eficiencia
+    efficiency_alerts = []
+    
+    # Detectar d\u00edas con baja ocupaci\u00f3n
+    low_occupation_days = [
+        day for day in cronograma 
+        if day["resumen_dia"]["ocupacion_promedio"] < min_occupation * 100
+    ]
+    
+    if low_occupation_days:
+        efficiency_alerts.append({
+            "tipo": "OCUPACION_BAJA",
+            "mensaje": f"{len(low_occupation_days)} d\u00edas con ocupaci\u00f3n < {min_occupation*100}%",
+            "dias_afectados": [d["fecha"] for d in low_occupation_days[:5]],
+            "recomendacion": "Agregar pedidos de deniers con capacidad disponible o consolidar turnos"
+        })
+    
+    # Detectar capacidad ociosa
+    idle_capacity = []
+    for denier, eff in optimizer.denier_efficiency.items():
+        used_in_plan = any(
+            assignment.get('denier') == denier 
+            for day in cronograma 
+            for turno in day["turnos"] 
+            for assignment in turno["asignaciones"]
+        )
+        if not used_in_plan:
+            idle_capacity.append({
+                'denier': denier,
+                'capacidad_kgh': eff['torsion_kgh'],
+                'maquinas_disponibles': eff['machines_available']
+            })
+    
+    if idle_capacity:
+        idle_capacity.sort(key=lambda x: x['capacidad_kgh'], reverse=True)
+        efficiency_alerts.append({
+            "tipo": "CAPACIDAD_OCIOSA",
+            "mensaje": f"Se detectaron {len(idle_capacity)} deniers sin utilizar",
+            "deniers_disponibles": idle_capacity[:3],
+            "kg_adicionales_posibles": round(
+                sum(d['capacidad_kgh'] for d in idle_capacity) * shift_hours * shifts_per_day * 7, 0
+            ),
+            "fecha_sugerida_inclusion": (start_date + timedelta(days=len(cronograma)//3)).strftime("%Y-%m-%d")
+        })
+    
+    # Calculate averages for items that didn't finish
+    if "_temp_tracking" in locals():
+        for ref, data in _temp_tracking.items():
+            if ref not in completion_tracking:
+                item = next((i for i in backlog_items if i.ref == ref), None)
+                if item:
+                    completion_tracking[ref] = {
+                        "referencia": item.ref,
+                        "descripcion": item.description,
+                        "fecha_finalizacion": "En proceso...",
+                        "kg_totales": item.kg_initial,
+                        "denier": item.denier,
+                        "puestos_promedio": round(data["puestos_acum"] / data["turnos_cont"], 1)
+                    }
+
+    # Preparar datos de gr\u00e1ficas
+    chart_data = {
+        "labels": [day["fecha"] for day in cronograma],
+        "dataset_kg_produccion": [day["resumen_dia"]["kg_producidos"] for day in cronograma],
+        "dataset_operarios": [max((t["operarios_requeridos"] for t in day["turnos"]), default=0) for day in cronograma]
+    }
+    
+    return {
+        "scenario": {
+            "resumen_global": {
+                "comentario_estrategia": f"Estrategia: {optimizer.strategy} + M\u00e1xima Ocupaci\u00f3n + Continuidad",
+                "fecha_inicio": start_date.strftime("%Y-%m-%d"),
+                "fecha_finalizacion_total": cronograma[-1]["fecha"] if cronograma else None,
+                "total_dias_programados": len(cronograma),
+                "kg_totales_plan": round(total_kg_initial, 1),
+                "kg_producidos": round(total_kg_produced, 1),
+                "kg_pendientes": round(sum(item.kg_pending for item in backlog_items), 1),
+                "eficiencia_promedio": round(
+                    sum(day["resumen_dia"]["ocupacion_promedio"] for day in cronograma) / max(len(cronograma), 1), 1
+                ),
+                "alerta_capacidad": "✅ Plan optimizado para m\u00e1xima ocupaci\u00f3n" if not efficiency_alerts else "⚠️ Revisar alertas de eficiencia"
+            },
+            "alertas_eficiencia": efficiency_alerts,
+            "tabla_finalizacion_referencias": list(completion_tracking.values()),
+            "cronograma_diario": cronograma,
+            "datos_para_grafica": chart_data
+        }
+    }
 
 
 # ============================================================================
@@ -690,97 +716,64 @@ def generate_production_schedule(
     strategy: str = 'kg'
 ) -> Dict[str, Any]:
     """
-    Función principal compatible con la API existente
+    Funci\u00f3n principal compatible con la API existente.
+    Redirige a la nueva l\u00f3gica de optimizaci\u00f3n v2.
     """
     if not rewinder_capacities or not backlog_summary:
         return {
             "scenario": {
                 "resumen_global": {
-                    "comentario_estrategia": "Error: Datos insuficientes",
-                    "alerta_capacidad": "❌ Error"
+                    "comentario_estrategia": "Error: Datos insuficientes para la programaci\u00f3n.",
+                    "alerta_capacidad": "\u274c Error de Datos"
                 },
                 "cronograma_diario": []
             }
         }
     
-    optimizer = MaxOutputOptimizer(
-        rewinder_capacities=rewinder_capacities,
-        torsion_capacities=torsion_capacities or {},
+    # Mapeo de argumentos a la nueva funci\u00f3n de generaci\u00f3n
+    return generate_optimized_schedule(
+        backlog_summary=backlog_summary,
+        torsion_capacities_db=torsion_capacities or {},
+        rewinder_capacities_db=rewinder_capacities or {},
+        total_rewinders=28,
+        shift_hours=8.0,
+        shifts_per_day=3,
+        max_days=60,
         strategy=strategy
     )
+
+
+def run_optimized_production(
+    db_backlog: Dict[str, Any],
+    db_torsion_config: Dict[str, Any],
+    db_rewinder_config: Dict[str, Any],
+    app_config: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Funci\u00f3n principal para integraci\u00f3n con la APP (v2).
+    """
+    app_config = app_config or {}
     
-    return optimizer.generate_schedule(
+    # Transformar backlog
+    backlog_summary = {}
+    for item in db_backlog.get('items', []):
+        code = item.get('code') or item.get('referencia')
+        if code:
+            backlog_summary[code] = {
+                'kg_total': item.get('kg_pendientes', item.get('cantidad', 0)),
+                'description': item.get('descripcion', ''),
+                'denier': item.get('denier', item.get('titulo', 0)),
+                'priority': item.get('prioridad', 0)
+            }
+    
+    return generate_optimized_schedule(
         backlog_summary=backlog_summary,
-        shifts=shifts
+        torsion_capacities_db=db_torsion_config,
+        rewinder_capacities_db=db_rewinder_config,
+        total_rewinders=app_config.get('total_rewinders', 28),
+        shift_hours=app_config.get('shift_hours', 8.0),
+        shifts_per_day=app_config.get('shifts_per_day', 3),
+        max_days=app_config.get('max_days', 60),
+        start_date=app_config.get('start_date'),
+        min_occupation=app_config.get('min_occupation', 0.90)
     )
-
-
-def get_ai_optimization_scenario(backlog: List[Dict[str, Any]], 
-                                 reports: List[Dict[str, Any]]) -> str:
-    """
-    Genera un escenario de optimización usando IA (GPT-4o-mini)
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return "Error: OPENAI_API_KEY no configurada."
-
-    client = OpenAI(api_key=api_key)
-    
-    total_kg = sum(item.get('total_kg', 0) for item in backlog)
-    num_items = len(backlog)
-    
-    context = f"""
-    Eres un experto en optimización de plantas industriales.
-    Analiza la situación y proporciona recomendaciones:
-    - Items: {num_items}
-    - Totalkg: {total_kg}
-    - Novedades: {reports}
-    """
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Consultor Senior."},
-                {"role": "user", "content": context}
-            ]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _generate_valid_post_sets(n_optimo: int, max_posts: int = 28) -> List[int]:
-    if n_optimo <= 0: return []
-    min_load = max(1, math.ceil(0.8 * n_optimo))
-    valid = set()
-    for k in range(1, 11):
-        low = k * min_load
-        high = k * n_optimo
-        if low > max_posts: break
-        for p in range(low, min(high, max_posts) + 1):
-            valid.add(p)
-    return sorted(valid)
-
-
-def assign_shift_greedy(active_backlog, rewinder_posts_limit, torsion_capacities, shift_duration):
-    # Lógica de compatibilidad
-    rewinder_assignments = []
-    torsion_assignments = []
-    posts_remaining = rewinder_posts_limit
-    
-    for item in active_backlog:
-        if posts_remaining <= 0: break
-        valid_posts = item.get('valid_posts', [1])
-        for p in sorted(valid_posts, reverse=True):
-            if p <= posts_remaining:
-                rewinder_assignments.append({
-                    'ref': item.get('ref', ''),
-                    'denier': item.get('denier', ''),
-                    'puestos': p,
-                    'operarios': math.ceil(p / item.get('n_optimo', 1)),
-                    'kg_producidos': p * item.get('rw_rate', 0) * shift_duration
-                })
-                posts_remaining -= p
-                break
-    return rewinder_assignments, torsion_assignments, posts_remaining
