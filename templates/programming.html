@@ -459,7 +459,7 @@
             }
 
         } catch (err) {
-            // ... (omitting catch block for brevity as it remains same)
+            console.error(err);
         }
     }
 
@@ -551,7 +551,7 @@
             const res = await fetch('/api/save_schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentPlan)
+                body: JSON.stringify({ name: 'Prog IA ' + new Date().toLocaleDateString(), plan: currentPlan })
             });
             const data = await res.json();
             if (data.success) alert("¡Plan guardado exitosamente!");
@@ -582,14 +582,11 @@
         const drawHeader = (d) => {
             d.setFillColor(...colors.bg);
             d.rect(0, 0, pageWidth, 80, 'F');
-
             d.setTextColor(...colors.text);
             d.setFontSize(18); d.setFont("helvetica", "bold");
             d.text("Plan de Producción Cabuyas Linea Cordeleria", 40, 45);
-
             d.setFontSize(10); d.setFont("helvetica", "normal"); d.setTextColor(...colors.muted);
             d.text(`Generado: ${new Date().toLocaleString()}`, 40, 65);
-
             d.setDrawColor(...colors.border);
             d.line(40, 75, pageWidth - 40, 75);
         };
@@ -609,37 +606,28 @@
             return false;
         };
 
-        // --- Calculation of "Dias trabajados" (excluding Sundays) ---
         let workingDaysCount = 0;
         if (currentPlan.cronograma_diario) {
             currentPlan.cronograma_diario.forEach(day => {
                 const dateObj = new Date(day.fecha + 'T00:00:00');
-                if (dateObj.getDay() !== 0) {
-                    workingDaysCount++;
-                }
+                if (dateObj.getDay() !== 0) workingDaysCount++;
             });
         }
         const displayedDays = workingDaysCount > 0 ? workingDaysCount : (currentPlan.resumen_global.total_dias_programados || 0);
 
-        // --- Page 1: Metrics & Charts ---
         drawHeader(doc);
         let yPos = 100;
 
-        // Metric Labels
         doc.setFontSize(10); doc.setTextColor(...colors.muted); doc.setFont("helvetica", "bold");
         doc.text("Días Trabajados (Sin Domingos)", 40, yPos);
         doc.text("Total Kg en el Plan", 250, yPos);
-
         yPos += 20;
 
-        // Metric Values
         doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
         doc.text(displayedDays.toString(), 40, yPos);
         doc.text((currentPlan.resumen_global.kg_totales_plan?.toLocaleString() || '0') + " kg", 250, yPos);
-
         yPos += 30;
 
-        // Chart 1: Resource Chart (Kg & Personnel)
         try {
             const resCanvas = document.getElementById('resourceChart');
             if (resCanvas) {
@@ -651,18 +639,14 @@
             }
         } catch (e) { console.error("Chart Error:", e); }
 
-        // --- Detalle por día y turnos Línea rewinder ---
         checkNewPage(40);
         doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
         doc.text("Detalle por día y turnos Línea rewinder", 40, yPos);
         yPos += 25;
 
-        // Iterate Days
         if (currentPlan.cronograma_diario) {
             currentPlan.cronograma_diario.forEach((dia) => {
                 checkNewPage(120);
-
-                // Day Header
                 doc.setFillColor(...colors.cardBg);
                 doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
                 doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
@@ -672,69 +656,35 @@
                 if (dia.turnos && dia.turnos.length > 0) {
                     dia.turnos.forEach(turno => {
                         checkNewPage(80);
-
                         doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
                         doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
                         yPos += 10;
-
-                        const tableRows = turno.asignaciones.map(a => [
-                            a.referencia,
-                            a.descripcion || '',
-                            a.puestos,
-                            a.operarios,
-                            Math.round(a.kg_producidos).toLocaleString() + " kg"
-                        ]);
-
+                        const tableRows = turno.asignaciones.map(a => [a.referencia, a.descripcion || '', a.puestos, a.operarios, Math.round(a.kg_producidos).toLocaleString() + " kg"]);
                         doc.autoTable({
                             startY: yPos,
                             head: [['Referencia', 'Descripción', 'Puestos', 'Operarios', 'Producción (8h)']],
                             body: tableRows,
-                            theme: 'plain',
-                            headStyles: {
-                                fillColor: [240, 240, 240],
-                                textColor: [0, 0, 0],
-                                fontStyle: 'bold',
-                                lineWidth: 0.5,
-                                lineColor: [200, 200, 200]
-                            },
-                            styles: {
-                                fontSize: 9,
-                                textColor: [50, 50, 50],
-                                cellPadding: 4,
-                                lineColor: [230, 230, 230],
-                                lineWidth: 0.5
-                            },
                             theme: 'grid',
-                            columnStyles: {
-                                0: { fontStyle: 'bold' },
-                                4: { halign: 'right' }
-                            },
+                            headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.5, lineColor: [200, 200, 200] },
+                            styles: { fontSize: 9, textColor: [50, 50, 50], cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.5 },
+                            columnStyles: { 0: { fontStyle: 'bold' }, 4: { halign: 'right' } },
                             margin: { left: 40, right: 40 }
                         });
-
                         yPos = doc.lastAutoTable.finalY + 20;
                     });
                 } else {
                     doc.setFontSize(9); doc.setTextColor(...colors.muted); doc.setFont("helvetica", "italic");
-                    doc.text("Sin producción programada (Domingo o Festivo)", 40, yPos);
+                    doc.text("Sin producción programada", 40, yPos);
                     yPos += 20;
                 }
                 yPos += 10;
             });
         }
 
-        // --- Final Pages: Summary by Reference ---
         checkNewPage(100);
         doc.setFontSize(14); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
         doc.text("Resumen por Referencia (Terminación)", 40, yPos); yPos += 20;
-
-        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [
-            r.referencia,
-            r.descripcion || '',
-            r.fecha_finalizacion,
-            Math.round(r.kg_totales).toLocaleString() + " kg"
-        ]);
-
+        const sumRows = currentPlan.tabla_finalizacion_referencias.map(r => [r.referencia, r.descripcion || '', r.fecha_finalizacion, Math.round(r.kg_totales).toLocaleString() + " kg"]);
         doc.autoTable({
             startY: yPos,
             head: [['Referencia', 'Descripción', 'Fecha Terminación', 'Total Kg']],
@@ -747,19 +697,13 @@
         });
 
         const totalPages = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= totalPages; i++) {
-            doc.setPage(i);
-            drawFooter(doc, i, totalPages);
-        }
-
+        for (let i = 1; i <= totalPages; i++) { doc.setPage(i); drawFooter(doc, i, totalPages); }
         doc.save(`Plan_Produccion_Cordeleria_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 
     function switchScheduleTab(tabName, el) {
-        // Update tab classes
         document.querySelectorAll('.schedule-tab').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
-        // Toggle panels
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         const panel = document.getElementById('panel-' + tabName);
         if (panel) panel.classList.add('active');
@@ -768,16 +712,10 @@
     function exportTorsionPDF() {
         if (!currentPlan) return;
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF('l', 'pt', 'a4'); // landscape for wider table
+        const doc = new jsPDF('l', 'pt', 'a4');
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
-
-        const colors = {
-            text: [15, 23, 42],
-            muted: [100, 116, 139],
-            accent: [124, 58, 237], // purple
-            border: [226, 232, 240]
-        };
+        const colors = { text: [15, 23, 42], muted: [100, 116, 139], accent: [124, 58, 237], border: [226, 232, 240] };
 
         const drawHeader = (d) => {
             d.setFillColor(255, 255, 255);
@@ -813,10 +751,7 @@
             currentPlan.cronograma_diario.forEach(dia => {
                 const torsionTurnos = dia.turnos_torsion || [];
                 if (torsionTurnos.length === 0) return;
-
                 checkNewPage(120);
-
-                // Day header
                 doc.setFillColor(248, 250, 252);
                 doc.rect(40, yPos - 15, pageWidth - 80, 25, 'F');
                 doc.setFontSize(11); doc.setTextColor(...colors.text); doc.setFont("helvetica", "bold");
@@ -825,50 +760,23 @@
 
                 torsionTurnos.forEach(turno => {
                     checkNewPage(80);
-
                     doc.setFontSize(10); doc.setTextColor(...colors.accent); doc.setFont("helvetica", "bold");
                     doc.text(`Turno ${turno.nombre} (${turno.horario}) — ${turno.operarios_requeridos} Operarios`, 40, yPos);
                     yPos += 10;
-
                     const tableRows = turno.asignaciones.map(a => {
                         const util = a.husos_totales > 0 ? Math.round((a.husos_asignados / a.husos_totales) * 100) + '%' : '-';
-                        return [
-                            a.maquina,
-                            a.referencia,
-                            a.denier,
-                            `${a.husos_asignados} / ${a.husos_totales} (${util})`,
-                            a.kgh_maquina,
-                            Math.round(a.kg_turno).toLocaleString() + ' kg',
-                            a.operarios
-                        ];
+                        return [a.maquina, a.referencia, a.denier, `${a.husos_asignados} / ${a.husos_totales} (${util})`, a.kgh_maquina, Math.round(a.kg_turno).toLocaleString() + ' kg', a.operarios];
                     });
-
                     doc.autoTable({
                         startY: yPos,
                         head: [['Máquina', 'Referencia', 'Denier', 'Husos (Asig./Total)', 'Kg/h Máq.', 'Producción (8h)', 'Operarios']],
                         body: tableRows,
                         theme: 'grid',
-                        headStyles: {
-                            fillColor: [237, 233, 254],
-                            textColor: [88, 28, 135],
-                            fontStyle: 'bold',
-                            lineColor: [200, 200, 200],
-                            lineWidth: 0.5
-                        },
-                        styles: {
-                            fontSize: 9,
-                            textColor: [50, 50, 50],
-                            cellPadding: 4,
-                            lineColor: [230, 230, 230],
-                            lineWidth: 0.5
-                        },
-                        columnStyles: {
-                            0: { fontStyle: 'bold' },
-                            5: { halign: 'right' }
-                        },
+                        headStyles: { fillColor: [237, 233, 254], textColor: [88, 28, 135], fontStyle: 'bold', lineColor: [200, 200, 200], lineWidth: 0.5 },
+                        styles: { fontSize: 9, textColor: [50, 50, 50], cellPadding: 4, lineColor: [230, 230, 230], lineWidth: 0.5 },
+                        columnStyles: { 0: { fontStyle: 'bold' }, 5: { halign: 'right' } },
                         margin: { left: 40, right: 40 }
                     });
-
                     yPos = doc.lastAutoTable.finalY + 20;
                 });
                 yPos += 10;
@@ -876,11 +784,7 @@
         }
 
         const totalPages = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= totalPages; i++) {
-            doc.setPage(i);
-            drawFooter(doc, i, totalPages);
-        }
-
+        for (let i = 1; i <= totalPages; i++) { doc.setPage(i); drawFooter(doc, i, totalPages); }
         doc.save(`Programacion_Torsion_${new Date().toISOString().split('T')[0]}.pdf`);
     }
 
