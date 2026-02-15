@@ -390,6 +390,10 @@ def config():
     deniers = db.get_deniers()
     rewinder_configs = db.get_rewinder_denier_configs()
     machine_denier_configs = db.get_machine_denier_configs()
+    today = datetime.now().date()
+    start_date = today + timedelta(days=1)
+    end_date = start_date + timedelta(days=29)
+    shifts_db = db.get_shifts(str(start_date), str(end_date))
     inventarios_cabuyas = db.get_inventarios_cabuyas()
     
     machine_configs_mapped = {}
@@ -398,11 +402,6 @@ def config():
         if m_id not in machine_configs_mapped:
             machine_configs_mapped[m_id] = {}
         machine_configs_mapped[m_id][str(c['denier'])] = c
-    
-    today = datetime.now().date()
-    start_date = today + timedelta(days=1)
-    end_date = start_date + timedelta(days=29)
-    shifts_db = db.get_shifts(str(start_date), str(end_date))
     
     shifts_dict = {str(s['date']): s['working_hours'] for s in shifts_db}
     calendar = []
