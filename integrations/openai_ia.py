@@ -691,36 +691,13 @@ def generate_production_schedule(
 ) -> Dict[str, Any]:
     """
     Función principal compatible con la API existente
-    
-    Args:
-        orders: Lista de órdenes (para compatibilidad, no se usa directamente)
-        rewinder_capacities: Capacidades de rewinder por denier
-        shifts: Lista de turnos disponibles
-        torsion_capacities: Capacidades de torsión por denier
-        backlog_summary: Resumen del backlog a producir
-        strategy: Estrategia de optimización ('kg' o 'priority')
-    
-    Returns:
-        Dict con el escenario de producción generado
     """
-    # Validar parámetros obligatorios
-    if not rewinder_capacities:
+    if not rewinder_capacities or not backlog_summary:
         return {
             "scenario": {
                 "resumen_global": {
-                    "comentario_estrategia": "Error: No se proporcionaron capacidades de rewinder",
-                    "alerta_capacidad": "❌ Error: Datos insuficientes"
-                },
-                "cronograma_diario": []
-            }
-        }
-    
-    if not backlog_summary:
-        return {
-            "scenario": {
-                "resumen_global": {
-                    "comentario_estrategia": "No hay items en el backlog.",
-                    "alerta_capacidad": "⚠️ Sin backlog para programar"
+                    "comentario_estrategia": "Error: Datos insuficientes",
+                    "alerta_capacidad": "❌ Error"
                 },
                 "cronograma_diario": []
             }
@@ -742,13 +719,6 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]],
                                  reports: List[Dict[str, Any]]) -> str:
     """
     Genera un escenario de optimización usando IA (GPT-4o-mini)
-    
-    Args:
-        backlog: Lista de items en backlog
-        reports: Lista de reportes/novedades
-    
-    Returns:
-        String con el análisis de la IA
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -756,125 +726,61 @@ def get_ai_optimization_scenario(backlog: List[Dict[str, Any]],
 
     client = OpenAI(api_key=api_key)
     
-    # Calcular métricas del backlog
     total_kg = sum(item.get('total_kg', 0) for item in backlog)
     num_items = len(backlog)
     
     context = f"""
-    Eres un experto en optimización de plantas industriales de producción de cabuyas.
-    Actúas como consultor senior para Ciplas.
-    
-    Datos actuales:
-    - Total de items en backlog: {num_items}
-    - Total de kg pendientes: {total_kg:,.1f} kg
-    - Novedades/reportes: {reports}
-    
-    Analiza la situación y proporciona recomendaciones específicas para:
-    1. Mejorar la ocupación de los 28 puestos rewinder
-    2. Balancear la producción entre torsión y rewinder
-    3. Minimizar cambios de denier entre turnos
-    4. Maximizar el uso de la máquina T14 para deniers 12000/18000
-    
-    Genera un plan de acción breve y directo (máximo 300 palabras).
+    Eres un experto en optimización de plantas industriales.
+    Analiza la situación y proporciona recomendaciones:
+    - Items: {num_items}
+    - Totalkg: {total_kg}
+    - Novedades: {reports}
     """
     
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Consultor Senior de Procesos Industriales especializado en manufactura de cabuyas."},
+                {"role": "system", "content": "Consultor Senior."},
                 {"role": "user", "content": context}
-            ],
-            max_tokens=500
+            ]
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Error al consultar la IA: {e}"
+        return f"Error: {e}"
 
-
-# ============================================================================
-# FUNCIONES UTILITARIAS (MANTENIDAS PARA COMPATIBILIDAD)
-# ============================================================================
 
 def _generate_valid_post_sets(n_optimo: int, max_posts: int = 28) -> List[int]:
-    """
-    Función de compatibilidad hacia atrás
-    Genera lista de conteos válidos de puestos basados en N óptimo
-    """
-    if n_optimo <= 0:
-        return []
-    
-    min_load = math.ceil(0.8 * n_optimo)
-    if min_load < 1:
-        min_load = 1
-    
+    if n_optimo <= 0: return []
+    min_load = max(1, math.ceil(0.8 * n_optimo))
     valid = set()
-    max_operators = max_posts // min_load + 1
-    
-    for k in range(1, max_operators + 1):
+    for k in range(1, 11):
         low = k * min_load
         high = k * n_optimo
-        if low > max_posts:
-            break
+        if low > max_posts: break
         for p in range(low, min(high, max_posts) + 1):
             valid.add(p)
-    
     return sorted(valid)
 
 
-def assign_shift_greedy(
-    active_backlog: List[Dict],
-    rewinder_posts_limit: int,
-    torsion_capacities: Dict[str, Dict],
-    shift_duration: float
-) -> Tuple[List[Dict], List[Dict], int]:
-    """
-    Función de compatibilidad hacia atrás.
-    Ahora redirige al nuevo optimizador.
-    """
-    # Para compatibilidad, devolvemos estructura similar a la anterior
-    
+def assign_shift_greedy(active_backlog, rewinder_posts_limit, torsion_capacities, shift_duration):
+    # Lógica de compatibilidad
     rewinder_assignments = []
     torsion_assignments = []
     posts_remaining = rewinder_posts_limit
     
-    # Lógica simplificada de compatibilidad
     for item in active_backlog:
-        if posts_remaining <= 0:
-            break
-        
-        ref = item.get('ref', '')
-        denier = item.get('denier', '')
+        if posts_remaining <= 0: break
         valid_posts = item.get('valid_posts', [1])
-        
-        # Tomar el mayor válido que quepa
         for p in sorted(valid_posts, reverse=True):
             if p <= posts_remaining:
                 rewinder_assignments.append({
-                    'ref': ref,
-                    'descripcion': item.get('descripcion', ''),
-                    'denier': denier,
+                    'ref': item.get('ref', ''),
+                    'denier': item.get('denier', ''),
                     'puestos': p,
                     'operarios': math.ceil(p / item.get('n_optimo', 1)),
-                    'kg_producidos': p * item.get('rw_rate', 0) * shift_duration,
-                    'rw_rate_total': p * item.get('rw_rate', 0)
+                    'kg_producidos': p * item.get('rw_rate', 0) * shift_duration
                 })
-                
-                # Asignar máquinas de torsión simple
-                cap_data = torsion_capacities.get(denier, {})
-                for machine in cap_data.get('machines', [])[:2]:  # Limitado para compatibilidad
-                    torsion_assignments.append({
-                        'maquina': machine.get('machine_id', ''),
-                        'denier': denier,
-                        'husos_asignados': machine.get('husos', 0),
-                        'husos_totales': machine.get('husos', 0),
-                        'kgh_maquina': machine.get('kgh', 0),
-                        'kg_turno': machine.get('kgh', 0) * shift_duration,
-                        'operarios': 1,
-                        'ref': ref
-                    })
-                
                 posts_remaining -= p
                 break
-    
     return rewinder_assignments, torsion_assignments, posts_remaining
