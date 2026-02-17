@@ -55,16 +55,17 @@ class BacklogItem:
 # ============================================================================
 
 class TorsionFocusedOptimizer:
-    """
+    \"\"\"
     Estrategia 'Torsion Optimized':
     1. Asignación estricta de máquinas por Denier.
     2. Regla de 4 máquinas activas simultáneas.
     3. Uso de T16 como máquina de backup/cambio.
-    """
+    \"\"\"
     def __init__(self, 
                  torsion_machines: List[TorsionMachine], 
                  rewinder_configs: Dict[int, RewinderConfig],
-                 shift_hours: float = 8.0):
+                 shift_hours: float = 8.0,
+                 torsion_overrides: Dict[str, Any] = None):
         
         self.torsion_machines = torsion_machines
         self.rewinder_configs = rewinder_configs
@@ -91,13 +92,30 @@ class TorsionFocusedOptimizer:
             'T16': {2000, 2500, 3000, 4000, 6000, 9000, 12000}
         }
         
+        # Apply Overrides
+        # Override format: 'T11': {'mode': 'single', 'refs': ['6000']} or {'mode': 'mix', 'refs': ['4000', '6000']}
+        if torsion_overrides:
+            for m_id, data in torsion_overrides.items():
+                if m_id in self.compatibility_rules:
+                    # Convert ref strings to deniers (ints)
+                    # Note: The overrides send 'refs' which are DENIERS in string format (e.g. \"6000\").
+                    # We need to ensure we store them as ints.
+                    allowed_deniers = set()
+                    for r in data.get('refs', []):
+                        try:
+                            allowed_deniers.add(int(r))
+                        except: pass
+                    
+                    if allowed_deniers:
+                        self.compatibility_rules[m_id] = allowed_deniers
+
         # Máquinas Principales vs Backup
         self.main_machines = ['T11', 'T12', 'T14', 'T15']
         self.backup_machine = 'T16' 
         self.max_active_machines = 4
 
     def get_machine_kgh(self, machine_id: str, denier: int) -> float:
-        """Busca el KGH específico para esa combinación en la data de entrada"""
+        \"\"\"Busca el KGH específico para esa combinación en la data de entrada\"\"\"
         for m in self.torsion_machines:
             if m.machine_id == machine_id and m.denier == denier:
                 return m.kgh
@@ -109,9 +127,9 @@ class TorsionFocusedOptimizer:
         return kg / kgh
 
     def plan_production(self, backlog_items: List[BacklogItem], max_days: int = 60) -> Dict[str, Any]:
-        """
+        \"\"\"
         Simulación basada en eventos discretos (Shift-based).
-        """
+        \"\"\"
         # 1. Agrupar Backlog por Denier
         items_by_denier = defaultdict(list)
         for item in backlog_items:
@@ -180,7 +198,7 @@ class TorsionFocusedOptimizer:
             
             # Paso A: Revisar estado de máquinas principales
             # Si una termina, intenta tomar siguiente. Si no puede (cambio?), T16 podría entrar?
-            # En esta simplificación, asumimos que "Cambio" es solo tiempo, o que T16 toma el relevo.
+            # En esta simplificación, asumimos que \"Cambio\" es solo tiempo, o que T16 toma el relevo.
             
             shift_output = []
             active_count = 0
@@ -188,7 +206,7 @@ class TorsionFocusedOptimizer:
             
             # Orden de evaluación: T16 (Backup) tiene prioridad si ya estaba corriendo para terminar
             # Luego Main Machines.
-            # Pero la regla es: "Mantener 4 máquinas trabajando".
+            # Pero la regla es: \"Mantener 4 máquinas trabajando\".
             
             available_slots = 4
             machines_to_run = []
@@ -203,31 +221,10 @@ class TorsionFocusedOptimizer:
             # Si una principal estaba libre, intentamos arrancarla
             for m_id in self.main_machines:
                 if m_id not in machines_to_run and len(machine_queues[m_id]) > 0:
-                     # Verificar si podemos activarla (si hay slots)
-                     # O si esta es una "Main" debería tener prioridad sobre T16 si T16 ya cumplió?
-                     # Regla: T16 cubre cambios. Si T11 va a arrancar nuevo, T16 podría cubrir el setup?
-                     # Simplificación: Si hay slot, arranca T11. Si no hay slot y T11 debe producir, 
-                     # T16 toma la carga? -> Complicado.
-                     # Vamos a usar lógica: T11, T12, T14, T15 son PRIORIDAD.
-                     # Si alguna de ellas NO tiene trabajo, T16 puede tomar trabajo global? 
-                     # No, T16 cubre "paradas". 
                      pass
 
-            # REPLANTEAMIENTO SIMPLE PARA 4 ACTIVAS:
-            # Lista de candidatos a correr:
-            # A. Máquinas con trabajo en curso.
-            # B. Máquinas con trabajo en cola (si no están corriendo).
-            
             # Candidatos ordenados por prioridad fija: Main > T16 ??
-            # No, T16 entra cuando una Main "falla" o cambia.
-            # Simularemos esto así: 
-            # Si una Main termina su item en este turno (o antes), entra en estado "SETUP/CHANGE".
-            # Durante SETUP, la máquina Main NO produce.
-            # T16 detecta ese hueco y busca trabajo compatible de CUALQUIER cola para llenar el target de 4.
-            
-            # Pero el prompt dice: "T16 solo asigna referencias... cuando alguna necesite parar... cubrira T16"
-            # Asumiremos T16 roba un item pendiente de la cola de la máquina parada? O tiene su propia cola?
-            # "T16 solo asigna referencias" -> T16 es comodin.
+            # No, T16 entra cuando una Main \"falla\" o cambia.
             
             # Vamos a iterar las Main Machines.
             shifts_production = {} # m_id -> kg_produced
@@ -253,7 +250,6 @@ class TorsionFocusedOptimizer:
             if len(ready_main) < 4:
                 # T16 intenta ayudar. 
                 # ¿Qué produce T16? Lo que sea compatible del backlog global restante?
-                # Busquemos algo compatible con T16 en las colas de las máquinas inactivas o futuras
                 if not active_state['T16'] or active_state['T16']['remaining_kg'] <= 0:
                     # Buscar trabajo para T16
                     found_work = False
@@ -278,7 +274,6 @@ class TorsionFocusedOptimizer:
                          if found_work: break
             
             # EJECUTAR PRODUCCIÓN (Max 4 máquinas)
-            # Prioridad: Las que ya traen impulso, luego T16 llenando hueco
             runners = [m for m in self.main_machines + [self.backup_machine] 
                        if active_state[m] and active_state[m]['remaining_kg'] > 0]
             
@@ -286,7 +281,7 @@ class TorsionFocusedOptimizer:
             runners = runners[:4] 
             
             turn_data = {
-                'fecha': f"{shift_date.strftime('%Y-%m-%d')} Turno {shift_name}",
+                'fecha': f\"{shift_date.strftime('%Y-%m-%d')} Turno {shift_name}\",
                 'detalles': [],
                 'total_kg': 0,
                 'maquinas_activas': 0
@@ -339,29 +334,64 @@ class TorsionFocusedOptimizer:
                 'horas_trabajadas': round(stats['total_hours'], 1),
                 'kg_totales': round(stats['total_kg'], 1),
                 'referencias': list(stats['items']),
-                'utilizacion': f"{round(stats['total_hours'] / (shift_idx*8)*100, 1)}%" if shift_idx > 0 else "0%"
+                'utilizacion': f\"{round(stats['total_hours'] / (shift_idx*8)*100, 1)}%\" if shift_idx > 0 else \"0%\"
             })
             
         return {
             'resumen_maquinas': summary_table,
-            'cronograma_torsion': schedule
+            'cronograma_torsion': schedule,
+            'resumen_denier': self._generate_denier_summary(machine_stats, schedule)
         }
 
-# ============================================================================
-# FUNCIONES DE INTERFAZ
-# ============================================================================
+    def _generate_denier_summary(self, machine_stats, schedule):
+        denier_map = defaultdict(lambda: {
+            'kg_total': 0, 
+            'maquinas': set(), 
+            'horas_total': 0,
+            'refs': set()
+        })
+        
+        for turn in schedule:
+            for det in turn['detalles']:
+                d = det['denier']
+                kg = det['kg']
+                m_id = det['maquina']
+                ref = det['ref']
+                
+                kgh = self.get_machine_kgh(m_id, d)
+                hours = (kg / kgh) if kgh > 0 else 0
+                
+                denier_map[d]['kg_total'] += kg
+                denier_map[d]['maquinas'].add(m_id)
+                denier_map[d]['horas_total'] += hours
+                denier_map[d]['refs'].add(ref)
+                
+        summary_list = []
+        for d, data in denier_map.items():
+            hours = data['horas_total']
+            days = hours / 24 # Crude approximation of continuous days
+            summary_list.append({
+                'denier': d,
+                'kg_total': round(data['kg_total'], 1),
+                'maquinas': \", \".join(sorted(data['maquinas'])),
+                'horas_consumo': round(hours, 1),
+                'dias_aprox': round(days, 1),
+                'count_refs': len(data['refs'])
+            })
+            
+        return sorted(summary_list, key=lambda x: x['denier'])
 
 def generate_torsion_schedule(
     backlog_summary: Dict[str, Any],
     torsion_capacities: Dict[str, Any],
-    max_days: int = 60
+    max_days: int = 60,
+    torsion_overrides: Dict[str, Any] = None,
+    rewinder_overrides: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     
     # 1. Parsear Inputs
     torsion_machines = []
-    # Hardcodeamos config base si no viene completa, pero intentamos leer kwarg
     
-    # Construir objetos TorsionMachine con datos reales de DB
     for d_str, data in torsion_capacities.items():
         try:
             d = int(d_str)
@@ -374,12 +404,15 @@ def generate_torsion_schedule(
                 ))
         except: pass
     
-    # Asegurar que existan las máquinas criticas si la DB no las trajo (fallback)
-    known_ids = set(m.machine_id for m in torsion_machines)
-    defaults = [('T11', 4000, 52), ('T12', 4000, 52), ('T15', 2000, 28), ('T14', 12000, 160), ('T16', 4000, 32)]
-    # Solo agregar si faltan COMPLETAMENTE. Si existen para otro denier, ok.
+    rewinder_configs = {} 
     
-    rewinder_configs = {} # No se usa para planning de Torsion puro, pero el init lo pide
+    # Process Rewinder Overrides
+    if rewinder_overrides:
+        for d_str, n_val in rewinder_overrides.items():
+            try:
+                d = int(d_str)
+                rewinder_configs[d] = RewinderConfig(denier=d, kg_per_hour=0, n_optimo=n_val)
+            except: pass
     
     backlog_items = []
     for code, data in backlog_summary.items():
@@ -391,58 +424,50 @@ def generate_torsion_schedule(
             priority=int(data.get('priority', 0))
         ))
         
-    # 2. Inicializar Optimizer
-    optimizer = TorsionFocusedOptimizer(torsion_machines, rewinder_configs)
-    
-    # 3. Correr Plan
+    optimizer = TorsionFocusedOptimizer(torsion_machines, rewinder_configs, torsion_overrides=torsion_overrides)
     result = optimizer.plan_production(backlog_items, max_days)
     
     return {
-        "resumen_programa": {
-             "total_kg": sum(r['kg_totales'] for r in result['resumen_maquinas']),
-             "alertas": "Planificación centrada en Torsión (4 máquinas activas)"
+        \"resumen_programa\": {
+             \"total_kg\": sum(r['kg_totales'] for r in result['resumen_maquinas']),
+             \"alertas\": \"Planificación centrada en Torsión (4 máquinas activas)\"
         },
-        "tabla_turnos": result['cronograma_torsion'], # Reusamos campo para frontend
-        "resumen_maquinas": result['resumen_maquinas'], # Nuevo campo especifico
-        "scenario": { # Legacy compat
-            "resumen_global": {"comentario_estrategia": "Torsion Focus"},
-            "cronograma_diario": []
+        \"tabla_turnos\": result['cronograma_torsion'], 
+        \"resumen_maquinas\": result['resumen_maquinas'], 
+        \"resumen_denier\": result['resumen_denier'],
+        \"scenario\": { 
+            \"resumen_global\": {\"comentario_estrategia\": \"Torsion Focus\"},
+            \"cronograma_diario\": []
         }
     }
 
-# ============================================================================
-# WRAPPER PRINCIPAL
-# ============================================================================
-
 def generate_production_schedule(**kwargs):
-    """Wrapper compatible que decide qué estrategia usar"""
-    # Por ahora forzamos Torsion Focus según requerimiento
     backlog = kwargs.get('backlog_summary', {})
     
     return generate_torsion_schedule(
         backlog,
         kwargs.get('torsion_capacities', {}),
-        max_days=60
+        max_days=60,
+        torsion_overrides=kwargs.get('torsion_overrides'),
+        rewinder_overrides=kwargs.get('rewinder_overrides')
     )
 
 def get_ai_optimization_scenario(orders, reports):
-    """Helper DB -> Model"""
     try:
         from db.queries import DBQueries
         db = DBQueries()
         
-        # Obtener configuraciones
         m_configs = db.get_machine_denier_configs() or []
         
-        torsion_capacities = defaultdict(lambda: {"machines": []})
+        torsion_capacities = defaultdict(lambda: {\"machines\": []})
         for cfg in m_configs:
             d = str(cfg.get('denier'))
             kgh = float(cfg.get('kgh', 0))
             if kgh > 0:
-                torsion_capacities[d]["machines"].append({
-                    "machine_id": cfg.get('machine_id'),
-                    "kgh": kgh,
-                    "husos": int(cfg.get('husos', 1))
+                torsion_capacities[d][\"machines\"].append({
+                    \"machine_id\": cfg.get('machine_id'),
+                    \"kgh\": kgh,
+                    \"husos\": int(cfg.get('husos', 1))
                 })
 
         backlog_summary = {}
@@ -462,5 +487,5 @@ def get_ai_optimization_scenario(orders, reports):
         )
         
     except Exception as e:
-        logger.error(f"Error: {e}")
-        return {"error": str(e)}
+        logger.error(f\"Error: {e}\")
+        return {\"error\": str(e)}

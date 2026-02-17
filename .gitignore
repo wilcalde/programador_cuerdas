@@ -1,5 +1,4 @@
+node_modules/
+*.exe
+*.bin
 .env
-__pycache__/
-*.pyc
-.streamlit/
-service_account.json
