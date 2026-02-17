@@ -1,7 +1,484 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
+{% block header_title %}Simulación Torsión Rewinder{% endblock %}
 
 {% block content %}
-<div class=\"main-content\">
-    ... (omitted content for brevity, but I will push the whole file) ...
+<h2 style="color: var(--accent-blue); margin-bottom: 1.5rem;">Opciones de simulación torsión</h2>
+
+<!-- Backlog Dashboard Section -->
+<div class="card glass" style="margin-bottom: 2rem; padding: 1.5rem;">
+    <h3 style="color: var(--accent-blue); margin-top: 0;">📊 Backlog de la linea</h3>
+    <p style="color: #94A3B8; font-size: 0.9rem; margin-bottom: 1.5rem;">Análisis de carga por referencia (Horas
+        requeridas basada en mejor opción de máquina)</p>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+        <!-- Chart -->
+        <div>
+            <div id="backlogChart" style="width: 100%; height: 500px; min-height: 500px;"></div>
+        </div>
+
+        <!-- Best Options Table -->
+        <div>
+            <h4 style="color: var(--text-color); margin-bottom: 1rem; font-size: 1.1rem; font-weight: 700;">Sugerencia
+                de Asignación por Referencia</h4>
+            <div style="overflow-x: auto;">
+                <table class="table" style="width: 100%; font-size: 0.9rem;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color);">
+                            <th style="text-align: left; padding: 0.5rem; color: #1E293B; font-weight: 700;">Denier</th>
+                            <th style="text-align: left; padding: 0.5rem; color: #1E293B; font-weight: 700;">Opción 1
+                                (Más Rápida)</th>
+                            <th style="text-align: left; padding: 0.5rem; color: #1E293B; font-weight: 700;">Opción 2
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="bestOptionsTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- New: Sugerencia por Máquina (What each machine does best) -->
+            <div id="machineBestOptionSection"
+                style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                <h4 style="color: var(--text-color); margin-bottom: 0.75rem; font-size: 1rem; font-weight: 700;">Mejor
+                    Referencia para cada Máquina</h4>
+                <div id="machineBestOptionList"
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem;">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+<!-- End Backlog Dashboard -->
+
+<div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem;">
+    {% for machine_id in ['T11', 'T12', 'T14', 'T15', 'T16'] %}
+    <div class="card glass machine-card" id="card-{{ machine_id }}" style="padding: 1.25rem;">
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color);">
+            <div>
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent-blue);">{{ machine_id }}</h3>
+                {% set machine_info = sc_data.machines | selectattr('id', 'equalto', machine_id) | first %}
+                <span style="font-size: 0.7rem; color: #94A3B8;">HUSOS: <span id="husos-total-{{ machine_id }}">{{
+                        machine_info.husos_activos if machine_info else '?' }}</span></span>
+            </div>
+            <div class="toggle-container"
+                style="display: flex; gap: 0.25rem; background: rgba(0,0,0,0.1); padding: 0.25rem; border-radius: 6px;">
+                <label
+                    style="font-size: 0.75rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 4px; transition: all 0.2s;"
+                    class="mode-option active" data-machine="{{ machine_id }}" data-mode="single"
+                    onclick="setMode('{{ machine_id }}', 'single')">Una Ref</label>
+                <label
+                    style="font-size: 0.75rem; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 4px; transition: all 0.2s;"
+                    class="mode-option" data-machine="{{ machine_id }}" data-mode="mix"
+                    onclick="setMode('{{ machine_id }}', 'mix')">Mix</label>
+            </div>
+        </div>
+
+        <div class="machine-inputs" id="inputs-{{ machine_id }}">
+            <!-- Single Ref Input -->
+            <div class="input-group input-single" id="single-{{ machine_id }}">
+                <label
+                    style="font-size: 0.8rem; margin-bottom: 0.25rem; display: block; color: var(--text-color);">Referencia</label>
+                <select class="form-control" name="ref_{{ machine_id }}" style="font-size: 0.9rem; padding: 0.5rem;">
+                    <option value="">Seleccionar...</option>
+                    {% for config in sc_data.machine_denier_configs %}
+                    {% if config.machine_id == machine_id and config.rpm > 0 %}
+                    <option value="{{ config.denier }}">{{ config.denier }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Mix Inputs (Hidden by default) -->
+            <div class="input-group input-mix" id="mix-{{ machine_id }}"
+                style="display: none; gap: 0.75rem; flex-direction: column;">
+                <div>
+                    <label
+                        style="font-size: 0.8rem; margin-bottom: 0.25rem; display: block; color: var(--text-color);">Referencia
+                        1</label>
+                    <select class="form-control" name="ref1_{{ machine_id }}"
+                        style="font-size: 0.9rem; padding: 0.5rem;">
+                        <option value="">Seleccionar...</option>
+                        {% for config in sc_data.machine_denier_configs %}
+                        {% if config.machine_id == machine_id and config.rpm > 0 %}
+                        <option value="{{ config.denier }}">{{ config.denier }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                        <label style="font-size: 0.7rem; color: #94A3B8;">Husos:</label>
+                        <input type="number" class="form-control husos-input-{{ machine_id }}"
+                            name="husos1_{{ machine_id }}"
+                            style="font-size: 0.8rem; padding: 0.2rem 0.4rem; height: auto; width: 60px;"
+                            placeholder="Cant." min="0" oninput="validateHusos('{{ machine_id }}')">
+                    </div>
+                </div>
+                <div>
+                    <label
+                        style="font-size: 0.8rem; margin-bottom: 0.25rem; display: block; color: var(--text-color);">Referencia
+                        2</label>
+                    <select class="form-control" name="ref2_{{ machine_id }}"
+                        style="font-size: 0.9rem; padding: 0.5rem;">
+                        <option value="">Seleccionar...</option>
+                        {% for config in sc_data.machine_denier_configs %}
+                        {% if config.machine_id == machine_id and config.rpm > 0 %}
+                        <option value="{{ config.denier }}">{{ config.denier }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                        <label style="font-size: 0.7rem; color: #94A3B8;">Husos:</label>
+                        <input type="number" class="form-control husos-input-{{ machine_id }}"
+                            name="husos2_{{ machine_id }}"
+                            style="font-size: 0.8rem; padding: 0.2rem 0.4rem; height: auto; width: 60px;"
+                            placeholder="Cant." min="0" oninput="validateHusos('{{ machine_id }}')">
+                    </div>
+                </div>
+                <div id="husos-warning-{{ machine_id }}"
+                    style="display: none; font-size: 0.7rem; color: #F87171; margin-top: 0.25rem;">
+                    Suma de husos incorrecta
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<h2 style="color: var(--accent-blue); margin-top: 2rem; margin-bottom: 1.5rem;">Opciones simulacion rewinder</h2>
+
+<div class="card glass" style="padding: 1.5rem; overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+        <thead>
+            <tr style="color: var(--accent-blue); border-bottom: 1px solid var(--border-color);">
+                <th style="padding: 0.75rem;">Denier</th>
+                <th style="padding: 0.75rem;">N (Máquinas/Operario)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for denier, cap in sc_data.rewinder_capacities.items() %}
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <td style="padding: 0.75rem; font-weight: 600;">{{ denier }}</td>
+                <td style="padding: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" class="form-control" name="n_rewinder_{{ denier }}"
+                            value="{{ cap.n_optimo | int }}" min="1" max="15" step="1"
+                            style="width: 80px; text-align: center;">
+                        <span style="font-size: 0.8rem; color: #94A3B8;">(Sugerido: {{ cap.n_optimo }})</span>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+        <button class="btn btn-primary" onclick="generateSchedule()" style="min-width: 200px; font-weight: 700;">
+            <i class="bi bi-play-circle"></i> Ejecutar Simulación
+        </button>
+    </div>
+</div>
+<div id="loading" style="display: none; margin-top: 1rem; text-align: right; color: var(--accent-blue);">
+    <i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite; display: inline-block;"></i> Ejecutando
+    simulación...
+</div>
+
+<div id="results" style="margin-top: 2rem;"></div>
+
+<style>
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .chart-container {
+        position: relative;
+        height: 300px;
+        width: 100%;
+        margin-top: 2rem;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+    }
+
+    .schedule-tabs {
+        display: flex;
+        gap: 0;
+        margin: 2rem 0 1.5rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .schedule-tab {
+        padding: 0.75rem 2rem;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #94A3B8;
+        border-bottom: 3px solid transparent;
+        transition: all 0.2s;
+        user-select: none;
+    }
+
+    .schedule-tab:hover { color: #F8FAFC; }
+
+    .schedule-tab.active {
+        color: #38BDF8;
+        border-bottom-color: #38BDF8;
+    }
+
+    .schedule-tab.torsion-tab.active {
+        color: #A78BFA;
+        border-bottom-color: #A78BFA;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+<script>
+    let currentPlan = null;
+    let mainChart = null;
+
+    const inventoryData = {{ sc_data.inventarios_cabuyas | tojson }};
+    const pendingRequirements = {{ sc_data.pending_requirements | tojson }};
+    const machineConfig = {{ sc_data.machine_denier_configs | tojson }};
+    const machines = {{ sc_data.machines | tojson }};
+    const torsionCapacities = {{ sc_data.torsion_capacities | tojson }};
+    const rewinderCapacities = {{ sc_data.rewinder_capacities | tojson }};
+
+    function validateHusos(machineId) {
+        const totalHusos = parseInt(document.getElementById('husos-total-' + machineId).innerText) || 0;
+        const h1Input = document.querySelector(`input[name="husos1_${machineId}"]`);
+        const h2Input = document.querySelector(`input[name="husos2_${machineId}"]`);
+        const husos1 = parseInt(h1Input.value) || 0;
+        const husos2 = parseInt(h2Input.value) || 0;
+        const warningEl = document.getElementById('husos-warning-' + machineId);
+
+        if (husos1 + husos2 !== totalHusos) {
+            warningEl.style.display = 'block';
+            warningEl.innerText = `Suma incorrecta (${husos1 + husos2} / ${totalHusos})`;
+            return false;
+        } else {
+            warningEl.style.display = 'none';
+            return true;
+        }
+    }
+
+    function setMode(machineId, mode) {
+        const card = document.getElementById('card-' + machineId);
+        card.querySelectorAll('.mode-option').forEach(el => {
+            el.classList.remove('active');
+            el.style.backgroundColor = 'transparent';
+            el.style.color = '#94A3B8';
+        });
+
+        const activeBtn = card.querySelector(`[data-mode="${mode}"]`);
+        if (activeBtn) {
+            activeBtn.classList.add('active');
+            activeBtn.style.backgroundColor = 'var(--accent-blue)';
+            activeBtn.style.color = 'white';
+        }
+
+        const singleInput = document.getElementById('single-' + machineId);
+        const mixInput = document.getElementById('mix-' + machineId);
+
+        if (mode === 'single') {
+            if (singleInput) singleInput.style.display = 'block';
+            if (mixInput) mixInput.style.display = 'none';
+        } else {
+            if (singleInput) singleInput.style.display = 'none';
+            if (mixInput) mixInput.style.display = 'flex';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.mode-option.active').forEach(el => {
+            el.style.backgroundColor = 'var(--accent-blue)';
+            el.style.color = 'white';
+        });
+    });
+
+    async function generateSchedule() {
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.style.display = 'block';
+        document.getElementById('results').innerHTML = '';
+
+        try {
+            const torsionOverrides = {};
+            const assignedMap = {};
+
+            document.querySelectorAll('.machine-card').forEach(card => {
+                const machineId = card.id.replace('card-', '');
+                const activeEl = card.querySelector('.mode-option.active');
+                if (!activeEl) return;
+
+                const mode = activeEl.dataset.mode;
+                const totalHusos = parseInt(document.getElementById('husos-total-' + machineId).innerText) || 0;
+
+                if (mode === 'single') {
+                    const sel = document.querySelector(`select[name="ref_${machineId}"]`);
+                    const ref = sel ? sel.value : null;
+                    if (ref) {
+                        torsionOverrides[machineId] = { mode: 'single', refs: [ref], husos: [totalHusos] };
+                        if (!assignedMap[ref]) assignedMap[ref] = new Set();
+                        assignedMap[ref].add({ id: machineId, mode: 'single', husos: totalHusos });
+                    }
+                } else {
+                    const sel1 = document.querySelector(`select[name="ref1_${machineId}"]`);
+                    const sel2 = document.querySelector(`select[name="ref2_${machineId}"]`);
+                    const h1 = parseInt(document.querySelector(`input[name="husos1_${machineId}"]`).value) || 0;
+                    const h2 = parseInt(document.querySelector(`input[name="husos2_${machineId}"]`).value) || 0;
+
+                    if (h1 + h2 !== totalHusos) throw new Error(`Suma husos en ${machineId} incorrecta`);
+                    
+                    const r1 = sel1 ? sel1.value : null;
+                    const r2 = sel2 ? sel2.value : null;
+                    if (r1) {
+                        if (!assignedMap[r1]) assignedMap[r1] = new Set();
+                        assignedMap[r1].add({ id: machineId, mode: 'mix', husos: h1 });
+                    }
+                    if (r2) {
+                        if (!assignedMap[r2]) assignedMap[r2] = new Set();
+                        assignedMap[r2].add({ id: machineId, mode: 'mix', husos: h2 });
+                    }
+                    torsionOverrides[machineId] = { mode: 'mix', refs: [r1, r2].filter(r => r), husos: [h1, h2] };
+                }
+            });
+
+            const rewinderOverrides = {};
+            document.querySelectorAll('input[name^="n_rewinder_"]').forEach(input => {
+                rewinderOverrides[input.name.replace('n_rewinder_', '')] = parseInt(input.value) || 0;
+            });
+
+            const response = await fetch('/api/generate_schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strategy: 'torsion_focus', torsion_overrides: torsionOverrides, rewinder_overrides: rewinderOverrides })
+            });
+            const data = await response.json();
+            document.getElementById('loading').style.display = 'none';
+
+            const scenario = data.scenario || data;
+            currentPlan = scenario;
+
+            const denierSummary = {};
+            pendingRequirements.forEach(req => {
+                const prod = inventoryData.find(p => p.codigo === req.codigo);
+                let d = (prod && prod.denier) ? prod.denier : (req.denier || 'Desconocido');
+                if (!denierSummary[d]) denierSummary[d] = { kg: 0, machines: [], hours: 0, days: 0 };
+                denierSummary[d].kg += Math.abs(req.requerimientos || 0);
+            });
+
+            Object.keys(denierSummary).forEach(d => {
+                const item = denierSummary[d];
+                const assigned = assignedMap[d];
+                if (assigned) item.machines = Array.from(assigned);
+                let tKh = 0;
+                if (item.machines.length > 0) {
+                    item.machines.forEach(m => {
+                        const cap = torsionCapacities[d];
+                        if (cap && cap.machines) {
+                            const mc = cap.machines.find(c => c.machine_id === m.id);
+                            if (mc) {
+                                const mObj = machines.find(ma => ma.id === m.id);
+                                const div = (mObj && mObj.husos_activos) ? mObj.husos_activos : (mc.husos || 1);
+                                tKh += (mc.kgh / div) * m.husos;
+                            }
+                        }
+                    });
+                }
+                if (tKh > 0) { item.hours = item.kg / tKh; item.days = item.hours / 24; }
+            });
+
+            let html = `<div class="card glass" style="border-top: 4px solid #10B981; margin-bottom: 2rem;">
+                <h2 style="color: #10B981;">✅ Simulación Completada</h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead><tr style="border-bottom: 2px solid var(--border-color);"><th style="padding:1rem;">Denier</th><th style="padding:1rem;">Kg</th><th style="padding:1rem;">Máquinas</th><th style="padding:1rem;">Horas</th><th style="padding:1rem;">Días</th></tr></thead>
+                    <tbody>`;
+            Object.keys(denierSummary).sort().forEach(d => {
+                const r = denierSummary[d];
+                html += `<tr style="border-bottom: 1px solid var(--border-color);"><td style="padding:1rem;">${d}</td><td style="padding:1rem;">${r.kg.toLocaleString()}</td><td style="padding:1rem;">${r.machines.map(m=>`<b>${m.id}</b>`).join(', ')}</td><td style="padding:1rem;">${r.hours.toFixed(1)}h</td><td style="padding:1rem;">${r.days.toFixed(1)}d</td></tr>`;
+            });
+            html += `</tbody></table></div>`;
+
+            html += `<div class="card glass"><h3>📅 Cronograma Semanal</h3><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.85rem;"><thead><tr style="background:#f1f5f9;"><th>Día</th><th>Turno</th><th>Máquina</th><th>Ref</th><th>Husos</th><th>Prod</th><th>Rew</th><th>Balance</th></tr></thead><tbody>`;
+            
+            const days = [{n:'Lunes',t:3},{n:'Martes',t:3},{n:'Miércoles',t:3},{n:'Jueves',t:3},{n:'Viernes',t:3},{n:'Sábado',t:2}];
+            let simB = JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(denierSummary).map(([k,v])=>[k,v.kg]))));
+            let tSt = JSON.parse(JSON.stringify(torsionOverrides));
+            let dTot = {};
+
+            days.forEach(day => {
+                dTot[day.n] = 0;
+                for (let t=1; t<=day.t; t++) {
+                    let rows = [];
+                    Object.keys(tSt).forEach(mId => {
+                        const mS = tSt[mId];
+                        const mI = machines.find(ma => ma.id === mId);
+                        mS.refs.forEach((ref, i) => {
+                            if (!ref || mS.husos[i] <= 0) return;
+                            const cap = torsionCapacities[ref];
+                            const mc = cap ? cap.machines.find(c => c.machine_id === mId) : null;
+                            if (!mc) return;
+                            const rate = (mc.kgh / mI.husos_activos) * mS.husos[i];
+                            let p = Math.min(rate * 8, simB[ref]);
+                            if (p > 0) {
+                                simB[ref] -= p; dTot[day.n] += p;
+                                const rC = rewinderCapacities[ref];
+                                rows.push({mId, ref, h:mS.husos[i], p, r: Math.round((p/8)/rC.kg_per_hour), b: p - (Math.round((p/8)/rC.kg_per_hour)*rC.kg_per_hour*8)});
+                            }
+                        });
+                        if (mS.mode==='mix' && mS.refs.length===2) {
+                            if (simB[mS.refs[0]]<=0 && mS.husos[0]>0) { mS.husos[1]+=mS.husos[0]; mS.husos[0]=0; }
+                            else if (simB[mS.refs[1]]<=0 && mS.husos[1]>0) { mS.husos[0]+=mS.husos[1]; mS.husos[1]=0; }
+                        }
+                    });
+                    if (rows.length>0) {
+                        html += `<tr style="background:#f8fafc;"><td colspan="8"><b>${day.n} - Turno ${t}</b></td></tr>`;
+                        rows.forEach(r => html += `<tr><td></td><td></td><td>${r.mId}</td><td>${r.ref}</td><td>${r.h}</td><td>${r.p.toFixed(1)}</td><td>${r.r}</td><td>${r.b.toFixed(1)}</td></tr>`);
+                    }
+                }
+            });
+            html += `</tbody></table></div></div><div id="dChart" style="height:300px;"></div>`;
+            document.getElementById('results').innerHTML = html;
+            Plotly.newPlot('dChart', [{x:days.map(d=>d.n), y:days.map(d=>dTot[d.n]), type:'bar', marker:{color:'#10B981'}}], {paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)'});
+        } catch(e) { console.error(e); alert('Error: ' + e.message); }
+    }
+
+    function renderBacklogDashboard() {
+        const summary = {};
+        pendingRequirements.forEach(req => {
+            const prod = inventoryData.find(p => p.codigo === req.codigo);
+            let d = (prod && prod.denier) ? prod.denier : (req.denier || 'Desconocido');
+            summary[d] = (summary[d] || 0) + Math.abs(req.requerimientos || 0);
+        });
+
+        const data = Object.keys(summary).map(d => {
+            if (d==='Desconocido') return null;
+            const cap = torsionCapacities[d];
+            const best = cap ? [...cap.machines].sort((a,b)=>b.kgh-a.kgh)[0] : null;
+            return { d, kg: summary[d], h: best ? summary[d]/best.kgh : 0, opt: best ? best.machine_id : '?' };
+        }).filter(x=>x).sort((a,b)=>b.h-a.h);
+
+        Plotly.newPlot('backlogChart', [{x:data.map(x=>x.h), y:data.map(x=>x.d), type:'bar', orientation:'h', marker:{color:'#38BDF8'}}], 
+            {height:500, margin:{l:150}, paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)'});
+        
+        const tb = document.getElementById('bestOptionsTableBody');
+        tb.innerHTML = '';
+        data.forEach(x => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${x.d}</td><td>${x.opt}</td><td>-</td>`;
+            tb.appendChild(tr);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', renderBacklogDashboard);
+</script>
 {% endblock %}
