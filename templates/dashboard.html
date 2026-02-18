@@ -1,77 +1,1072 @@
 {% extends "base.html" %}
 
-{% block header_title %}📊 Dashboard de Control{% endblock %}
+{% block head %}
+<style>
+    /* ===== Dashboard Specific Styles ===== */
+    .dash-kpi-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .dash-kpi {
+        background: linear-gradient(135deg, rgba(2, 132, 199, 0.08), rgba(79, 70, 229, 0.06));
+        border: 1px solid rgba(2, 132, 199, 0.15);
+        border-radius: 16px;
+        padding: 1.5rem 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .dash-kpi::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -30%;
+        width: 200px;
+        height: 200px;
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.1) 0%, transparent 70%);
+        border-radius: 50%;
+    }
+
+    .dash-kpi .kpi-label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748B;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .dash-kpi .kpi-value {
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #0284C7, #4F46E5);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .dash-kpi .kpi-sub {
+        font-size: 0.78rem;
+        color: #94A3B8;
+        margin-top: 0.25rem;
+    }
+
+    /* Chart + Detail section */
+    .backlog-section {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 2.5rem;
+    }
+
+    .detail-panel {
+        max-height: 450px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+
+    .detail-panel::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .detail-panel::-webkit-scrollbar-thumb {
+        background: rgba(2, 132, 199, 0.3);
+        border-radius: 3px;
+    }
+
+    .ref-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.65rem 0.8rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        transition: background 0.15s;
+    }
+
+    .ref-row:hover {
+        background: rgba(2, 132, 199, 0.05);
+    }
+
+    .ref-row .ref-code {
+        font-weight: 700;
+        color: var(--accent-blue);
+    }
+
+    .ref-row .ref-kg {
+        font-weight: 600;
+    }
+
+    /* Section title */
+    .section-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid rgba(2, 132, 199, 0.15);
+    }
+
+    .section-title h2 {
+        font-size: 1.3rem;
+        margin: 0;
+    }
+
+    .section-title .badge-info {
+        background: rgba(2, 132, 199, 0.1);
+        color: var(--accent-blue);
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    /* Calendar grid */
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 0.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .cal-day {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.5rem;
+        text-align: center;
+        transition: all 0.2s;
+        position: relative;
+        cursor: default;
+    }
+
+    .cal-day:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .cal-day.weekend {
+        border-color: rgba(239, 68, 68, 0.2);
+    }
+
+    .cal-day.holiday {
+        background: rgba(239, 68, 68, 0.04);
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .cal-day .day-name {
+        font-size: 0.6rem;
+        text-transform: uppercase;
+        color: #94A3B8;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+    }
+
+    .cal-day .day-date {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--text-color);
+        margin: 0.2rem 0;
+    }
+
+    .cal-day .day-hours {
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.15rem 0.4rem;
+        border-radius: 6px;
+        display: inline-block;
+    }
+
+    .cal-day .day-hours.h24 {
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+    }
+
+    .cal-day .day-hours.h16 {
+        background: rgba(251, 191, 36, 0.1);
+        color: #f59e0b;
+    }
+
+    .cal-day .day-hours.h0 {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+    }
+
+    .cal-day .holiday-badge {
+        position: absolute;
+        top: 2px;
+        right: 4px;
+        font-size: 0.5rem;
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        padding: 1px 4px;
+        border-radius: 4px;
+        font-weight: 800;
+    }
+
+    /* Calendar edit inputs */
+    .cal-day select.cal-select {
+        width: 100%;
+        padding: 0.15rem;
+        font-size: 0.65rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-color);
+        cursor: pointer;
+        margin-top: 0.25rem;
+    }
+
+    /* Machine capacity cards */
+    .machines-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .machine-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .machine-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    }
+
+    .machine-card.ok {
+        border-top: 4px solid #22c55e;
+    }
+
+    .machine-card.overload {
+        border-top: 4px solid #ef4444;
+    }
+
+    .machine-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .machine-name {
+        font-size: 1.25rem;
+        font-weight: 800;
+        color: var(--accent-blue);
+    }
+
+    .machine-status {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .machine-status.ok {
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+    }
+
+    .machine-status.overload {
+        background: rgba(239, 68, 68, 0.12);
+        color: #ef4444;
+    }
+
+    /* Progress bar */
+    .progress-track {
+        width: 100%;
+        height: 12px;
+        background: rgba(0, 0, 0, 0.06);
+        border-radius: 6px;
+        overflow: hidden;
+        margin: 0.75rem 0;
+    }
+
+    .progress-fill {
+        height: 100%;
+        border-radius: 6px;
+        transition: width 0.6s ease;
+    }
+
+    .progress-fill.ok {
+        background: linear-gradient(90deg, #22c55e, #4ade80);
+    }
+
+    .progress-fill.overload {
+        background: linear-gradient(90deg, #ef4444, #f87171);
+    }
+
+    .machine-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .machine-stat {
+        background: rgba(0, 0, 0, 0.02);
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .machine-stat .stat-label {
+        font-size: 0.65rem;
+        color: #94A3B8;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .machine-stat .stat-value {
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .denier-breakdown {
+        margin-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+        padding-top: 0.75rem;
+    }
+
+    .denier-breakdown .db-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.35rem 0;
+        font-size: 0.8rem;
+    }
+
+    .denier-breakdown .db-denier {
+        font-weight: 700;
+        color: var(--accent-blue);
+    }
+
+    .denier-breakdown .db-hours {
+        font-weight: 600;
+    }
+
+    /* Capacity summary table */
+    .summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        font-size: 0.85rem;
+    }
+
+    .summary-table th {
+        background: rgba(2, 132, 199, 0.06);
+        color: #64748B;
+        text-transform: uppercase;
+        font-size: 0.7rem;
+        letter-spacing: 0.05em;
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 2px solid var(--border-color);
+    }
+
+    .summary-table td {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .summary-table tr:hover td {
+        background: rgba(2, 132, 199, 0.03);
+    }
+
+    .summary-table .green {
+        color: #22c55e;
+        font-weight: 700;
+    }
+
+    .summary-table .red {
+        color: #ef4444;
+        font-weight: 700;
+    }
+
+    /* Save calendar button */
+    .save-cal-btn {
+        background: linear-gradient(135deg, #0284C7, #4F46E5);
+        color: white;
+        border: none;
+        padding: 0.6rem 1.5rem;
+        border-radius: 8px;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: transform 0.1s, opacity 0.2s;
+    }
+
+    .save-cal-btn:hover {
+        opacity: 0.9;
+    }
+
+    .save-cal-btn:active {
+        transform: scale(0.97);
+    }
+
+    @media (max-width: 900px) {
+        .dash-kpi-row {
+            grid-template-columns: 1fr;
+        }
+
+        .backlog-section {
+            grid-template-columns: 1fr;
+        }
+
+        .machines-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block header_title %}📊 Dashboard de Producción{% endblock %}
 
 {% block content %}
-<div class="grid">
-    <div class="card glass">
-        <div class="metric-label">Cumplimiento Plan</div>
-        <div class="metric-value">85%</div>
-        <div style="color: #10B981; font-size: 0.8rem;">↑ 2.1% vs anterior</div>
+
+<!-- ═══════ KPI ROW ═══════ -->
+<div class="dash-kpi-row">
+    <div class="dash-kpi">
+        <div class="kpi-label">📦 Backlog Total Pendiente</div>
+        <div class="kpi-value">{{ "{:,.0f}".format(total_backlog_kg) }} Kg</div>
+        <div class="kpi-sub">Kilogramos totales por fabricar</div>
     </div>
-    <div class="card glass">
-        <div class="metric-label">OEE Global</div>
-        <div class="metric-value">78%</div>
-        <div style="color: #EF4444; font-size: 0.8rem;">↓ 0.5% vs anterior</div>
-    </div>
-    <div class="card glass">
-        <div class="metric-label">Kg Producidos Hoy</div>
-        <div class="metric-value">1,250</div>
-        <div style="color: #38BDF8; font-size: 0.8rem;">Kg netos</div>
-    </div>
-    <div class="card glass">
-        <div class="metric-label">Backlog Pendiente</div>
-        <div class="metric-value">4,300</div>
-        <div style="color: #6366F1; font-size: 0.8rem;">Kg por programar</div>
+    <div class="dash-kpi">
+        <div class="kpi-label">🏭 Capacidad Disponible (30 días)</div>
+        <div class="kpi-value">{{ "{:,.0f}".format(total_available_hours) }} h</div>
+        <div class="kpi-sub">Horas totales por máquina según calendario</div>
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-top: 2rem;">
-    <div class="card glass">
-        <h3>⏳ Carga de Trabajo por Denier</h3>
-        <div id="chart-workload" style="height: 400px;"></div>
+<!-- ═══════ BACKLOG POR DENIER ═══════ -->
+<div class="backlog-section">
+    <div class="card" style="padding: 1.5rem;">
+        <h3 style="margin-top: 0; margin-bottom: 1rem;">📊 Kg Pendientes por Denier</h3>
+        <div id="denier-chart" style="height: 380px;"></div>
     </div>
-    <div class="card glass">
-        <h3>🔄 Sincronización</h3>
-        <p style="margin: 1rem 0; color: #94A3B8;">Actualiza los datos de producción desde la hoja de Google Sheets.</p>
-        <button class="btn btn-primary" style="width: 100%;">Sincronizar Sheets</button>
-
-        <div style="margin-top: 2rem;">
-            <h3>🖥️ Estado Torsión</h3>
-            <p style="font-size: 0.8rem; color: #94A3B8;">Monitoreo de máquinas T11-T16</p>
-            <div style="margin-top: 1rem;">
-                <!-- Placeholder for dynamic table -->
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">T11: En Marcha (90%)</div>
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">T12: Mantenimiento</div>
-                <div style="padding: 1rem;">T14: En Marcha (85%)</div>
+    <div class="card" style="padding: 1.5rem;">
+        <h3 id="detail-title" style="margin-top: 0; margin-bottom: 0.75rem; font-size: 1rem;">
+            🔍 Detalle de Referencias
+        </h3>
+        <p id="detail-subtitle" style="color: #94A3B8; font-size: 0.78rem; margin-bottom: 1rem;">
+            Haz clic en una barra del gráfico para ver las referencias
+        </p>
+        <div id="detail-panel" class="detail-panel">
+            <div style="text-align: center; padding: 3rem 1rem; color: #94A3B8;">
+                <i class="bi bi-hand-index"
+                    style="font-size: 2rem; display: block; margin-bottom: 0.75rem; opacity: 0.5;"></i>
+                Selecciona un denier en el gráfico
             </div>
         </div>
     </div>
 </div>
+
+<!-- ═══════ CARGA POR MÁQUINA - TÍTULO ═══════ -->
+<div class="section-title">
+    <h2>🏭 Carga por Máquina</h2>
+    <span class="badge-info">Horizonte 30 días</span>
+</div>
+
+<!-- ═══════ CALENDARIO ═══════ -->
+<div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+            <h3 style="margin: 0; font-size: 1.05rem;">📅 Calendario de Producción</h3>
+            <p style="color: #94A3B8; font-size: 0.78rem; margin-top: 0.25rem;">
+                L-V: 24h | Sáb: 16h | Dom y Festivos: 0h — Edita las horas o activa/desactiva días
+            </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <span style="font-size: 0.8rem; color: #64748B; font-weight: 600;">
+                Total: <strong style="color: var(--accent-blue);">{{ total_available_hours }}h</strong>
+            </span>
+            <button type="button" class="save-cal-btn" onclick="saveCalendar()">
+                💾 Guardar Calendario
+            </button>
+        </div>
+    </div>
+    <div class="calendar-grid" id="calendar-grid">
+        {% for day in calendar_days %}
+        <div class="cal-day {% if day.is_weekend %}weekend{% endif %} {% if day.is_holiday %}holiday{% endif %}">
+            {% if day.is_holiday %}
+            <span class="holiday-badge">FESTIVO</span>
+            {% endif %}
+            <div class="day-name">{{ day.weekday[:3] }}</div>
+            <div class="day-date">{{ day.display_date }}</div>
+            <select class="cal-select" data-date="{{ day.date }}" onchange="updateCalendarTotal()">
+                <option value="0" {% if day.hours==0 %}selected{% endif %}>🚫 0h</option>
+                <option value="8" {% if day.hours==8 %}selected{% endif %}>🌅 8h</option>
+                <option value="16" {% if day.hours==16 %}selected{% endif %}>🏢 16h</option>
+                <option value="24" {% if day.hours==24 %}selected{% endif %}>🌕 24h</option>
+            </select>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ═══════ MACHINE CAPACITY CARDS ═══════ -->
+<div class="machines-grid">
+    {% for mc in machine_capacity %}
+    <div class="machine-card {% if mc.has_capacity %}ok{% else %}overload{% endif %}">
+        <div class="machine-header">
+            <span class="machine-name">🏭 {{ mc.machine_id }}</span>
+            <span class="machine-status {% if mc.has_capacity %}ok{% else %}overload{% endif %}">
+                {% if mc.has_capacity %}✅ Con capacidad{% else %}🚨 Excedida{% endif %}
+            </span>
+        </div>
+
+        <!-- Deniers assigned -->
+        <div style="margin-bottom: 0.5rem;">
+            {% for d in mc.assigned_deniers %}
+            <span
+                style="display: inline-block; background: rgba(2,132,199,0.08); color: var(--accent-blue); padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700; margin-right: 0.3rem;">
+                D{{ d }}
+            </span>
+            {% endfor %}
+        </div>
+
+        <!-- Occupancy % -->
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.5rem;">
+            <span style="font-size: 0.78rem; color: #94A3B8;">Ocupación</span>
+            <span
+                style="font-size: 1.5rem; font-weight: 800; color: {% if mc.has_capacity %}#22c55e{% else %}#ef4444{% endif %};">
+                {{ mc.occupancy_pct }}%
+            </span>
+        </div>
+        <div class="progress-track">
+            <div class="progress-fill {% if mc.has_capacity %}ok{% else %}overload{% endif %}"
+                style="width: {{ [mc.occupancy_pct, 100]|min }}%;"></div>
+        </div>
+
+        <!-- Stats -->
+        <div class="machine-stats">
+            <div class="machine-stat">
+                <div class="stat-label">Disponible</div>
+                <div class="stat-value" style="color: #22c55e;">{{ "{:,.0f}".format(mc.available_hours) }}h</div>
+            </div>
+            <div class="machine-stat">
+                <div class="stat-label">Requerido</div>
+                <div class="stat-value"
+                    style="color: {% if mc.has_capacity %}var(--accent-blue){% else %}#ef4444{% endif %};">{{
+                    "{:,.1f}".format(mc.required_hours) }}h</div>
+            </div>
+            <div class="machine-stat">
+                <div class="stat-label">{% if mc.has_capacity %}Restante{% else %}Déficit{% endif %}</div>
+                <div class="stat-value" style="color: {% if mc.has_capacity %}#22c55e{% else %}#ef4444{% endif %};">
+                    {{ "{:,.1f}".format(mc.remaining_hours|abs) }}h
+                </div>
+            </div>
+            <div class="machine-stat">
+                <div class="stat-label">Kg/h Config</div>
+                <div class="stat-value" style="color: var(--accent-blue);">
+                    {% set total_kgh = [] %}
+                    {% for dd in mc.denier_details %}
+                    {% if dd.kgh > 0 %}
+                    {% if total_kgh.append(dd.kgh) %}{% endif %}
+                    {% endif %}
+                    {% endfor %}
+                    {% if total_kgh %}{{ "{:.1f}".format(total_kgh|sum) }}{% else %}-{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Denier breakdown -->
+        <div class="denier-breakdown">
+            {% for dd in mc.denier_details %}
+            <div class="db-row">
+                <span class="db-denier">D{{ dd.denier }}</span>
+                <span style="color: #94A3B8; font-size: 0.75rem;">{{ "{:,.0f}".format(dd.kg) }} Kg</span>
+                <span style="color: #94A3B8; font-size: 0.75rem;">@ {{ dd.kgh }} Kg/h</span>
+                <span class="db-hours"
+                    style="color: {% if dd.hours_needed > mc.available_hours %}#ef4444{% else %}var(--accent-blue){% endif %};">
+                    {{ "{:,.1f}".format(dd.hours_needed) }}h
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- ═══════ RESUMEN DE CAPACIDAD ═══════ -->
+<div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+    <h3 style="margin-top: 0; margin-bottom: 0.5rem;">📋 Resumen de Capacidad</h3>
+    <p style="color: #94A3B8; font-size: 0.78rem; margin-bottom: 1rem;">
+        Análisis consolidado de la carga de trabajo vs capacidad disponible a 30 días
+    </p>
+    <div style="overflow-x: auto;">
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th>Máquina</th>
+                    <th>Denier(s)</th>
+                    <th>Kg Pendientes</th>
+                    <th>Horas Requeridas</th>
+                    <th>Horas Disponibles</th>
+                    <th>Horas Restantes</th>
+                    <th>% Ocupación</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mc in machine_capacity %}
+                <tr>
+                    <td style="font-weight: 800; color: var(--accent-blue);">{{ mc.machine_id }}</td>
+                    <td>
+                        {% for d in mc.assigned_deniers %}
+                        <span
+                            style="background: rgba(2,132,199,0.08); padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.78rem; font-weight: 600; color: var(--accent-blue);">{{
+                            d }}</span>
+                        {% endfor %}
+                    </td>
+                    <td style="font-weight: 600;">
+                        {{ "{:,.0f}".format(mc.denier_details|sum(attribute='kg')) }} Kg
+                    </td>
+                    <td style="font-weight: 700;">{{ "{:,.1f}".format(mc.required_hours) }}h</td>
+                    <td>{{ "{:,.0f}".format(mc.available_hours) }}h</td>
+                    <td class="{% if mc.has_capacity %}green{% else %}red{% endif %}">
+                        {% if mc.has_capacity %}
+                        +{{ "{:,.1f}".format(mc.remaining_hours) }}h
+                        {% else %}
+                        -{{ "{:,.1f}".format(mc.remaining_hours|abs) }}h
+                        {% endif %}
+                    </td>
+                    <td style="font-weight: 800; color: {% if mc.has_capacity %}#22c55e{% else %}#ef4444{% endif %};">
+                        {{ mc.occupancy_pct }}%
+                    </td>
+                    <td>
+                        {% if mc.has_capacity %}
+                        <span
+                            style="background: rgba(34,197,94,0.1); color: #22c55e; padding: 0.3rem 0.7rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700;">
+                            ✅ OK
+                        </span>
+                        {% else %}
+                        <span
+                            style="background: rgba(239,68,68,0.1); color: #ef4444; padding: 0.3rem 0.7rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700;">
+                            🚨 EXCEDIDA
+                        </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Textual analysis -->
+    <div
+        style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(2,132,199,0.04); border-radius: 12px; border: 1px solid rgba(2,132,199,0.1);">
+        <h4 style="margin: 0 0 0.75rem 0; color: var(--accent-blue); font-size: 0.95rem;">🔎 Análisis Detallado</h4>
+        {% for mc in machine_capacity %}
+        <div
+            style="margin-bottom: 0.6rem; padding: 0.5rem 0.75rem; border-left: 3px solid {% if mc.has_capacity %}#22c55e{% else %}#ef4444{% endif %}; font-size: 0.85rem;">
+            <strong>{{ mc.machine_id }}</strong>
+            ({{ mc.assigned_deniers|join(', ') }}):
+            {% if mc.has_capacity %}
+            <span style="color: #22c55e; font-weight: 600;">
+                Con capacidad — {{ "{:,.1f}".format(mc.remaining_hours) }}h libres ({{ "{:.1f}".format(100 -
+                mc.occupancy_pct) }}% disponible)
+            </span>
+            {% else %}
+            <div style="margin-bottom: 0.25rem;">
+                <span style="color: #ef4444; font-weight: 600;">
+                    Capacidad superada — Déficit de {{ "{:,.1f}".format(mc.remaining_hours|abs) }}h ({{
+                    "{:.1f}".format(mc.occupancy_pct - 100) }}% sobre capacidad)
+                </span>
+            </div>
+            <!-- REDISTRIBUTION SUGGESTIONS -->
+            {% if mc.suggestions %}
+            <div style="margin-top: 0.5rem; background: rgba(239, 68, 68, 0.05); padding: 0.5rem; border-radius: 8px;">
+                <span style="font-size: 0.75rem; font-weight: 800; color: #ef4444;"><i class="bi bi-lightbulb"></i>
+                    OPCIONES DE REDISTRIBUCIÓN:</span>
+                <ul style="margin: 0.25rem 0 0 0; padding-left: 1.25rem; font-size: 0.78rem;">
+                    {% for sug in mc.suggestions %}
+                    <li>Mover carga de <strong>D{{ sug.denier }}</strong> a la máquina <strong>{{ sug.target_machine
+                            }}</strong> (que tiene {{ "{:.0f}".format(sug.available_hours) }}h libres)</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <div style="margin-top: 0.25rem; font-size: 0.75rem; color: #94A3B8;">
+                <i class="bi bi-exclamation-triangle"></i> Nota: No se encontraron máquinas alternativas configuradas
+                para estos deniers con capacidad libre.
+            </div>
+            {% endif %}
+            {% endif %}
+
+            {% if mc.denier_details|length > 1 %}
+            <div style="margin-top: 0.3rem; padding-left: 1rem; color: #64748B; font-size: 0.8rem;">
+                {% for dd in mc.denier_details %}
+                • D{{ dd.denier }}: {{ "{:,.0f}".format(dd.kg) }} Kg → {{ "{:,.1f}".format(dd.hours_needed) }}h
+                requeridas
+                {% if dd.kgh > 0 %}({{ dd.kgh }} Kg/h){% endif %}<br>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ═══════ ESQUEMA GRÁFICO DE BALANCE MASIVO ═══════ -->
+<div class="card" style="padding: 1.5rem; margin-bottom: 2rem; overflow: hidden;">
+    <h3 style="margin-top: 0; margin-bottom: 0.5rem;">⛓️ Esquema de Balance Masivo y WIP</h3>
+    <p style="color: #94A3B8; font-size: 0.78rem; margin-bottom: 2rem;">
+        Flujo de material: Suministro (Torsión) → Inventario en Proceso (WIP) → Demanda (Rewinder)
+    </p>
+
+    <div class="flow-container"
+        style="display: flex; flex-wrap: wrap; gap: 2.5rem; justify-content: space-around; position: relative; margin-top: 1rem;">
+        {% for mc in machine_capacity %}
+        <div class="flow-group"
+            style="display: flex; flex-direction: column; align-items: center; gap: 1rem; flex: 1; min-width: 200px;">
+
+            <!-- SUPPLIER NODE (TORTION) -->
+            <div class="flow-node supply"
+                style="width: 100%; background: rgba(2, 132, 199, 0.05); border: 1px solid rgba(2, 132, 199, 0.2); border-radius: 12px; padding: 0.75rem; text-align: center;">
+                <div style="font-weight: 800; color: var(--accent-blue); font-size: 0.9rem;">{{ mc.machine_id }}</div>
+                <div style="font-size: 0.65rem; color: #94A3B8; margin-bottom: 0.4rem;">SUMINISTRO (TORSIÓN)</div>
+                <div style="font-size: 1.1rem; font-weight: 800; color: #22c55e;">{{ mc.group_supply_kgh }} <small
+                        style="font-size: 0.6rem;">Kg/h</small></div>
+            </div>
+
+            <!-- ARROW -->
+            <div
+                style="color: rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <i class="bi bi-arrow-down" style="font-size: 1.4rem; color: #94A3B8;"></i>
+
+                <!-- GROUP WIP (DELTA) -->
+                <div style="padding: 0.3rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 800; white-space: nowrap; 
+                    {% if mc.group_wip_delta > 0.1 %}
+                        background: rgba(251, 191, 36, 0.1); color: #B45309; border: 1px solid rgba(251, 191, 36, 0.3);
+                    {% elif mc.group_wip_delta < -0.1 %}
+                        background: rgba(79, 70, 229, 0.1); color: #4F46E5; border: 1px solid rgba(79, 70, 229, 0.3);
+                    {% else %}
+                        background: rgba(34, 197, 94, 0.1); color: #15803D; border: 1px solid rgba(34, 197, 94, 0.3);
+                    {% endif %}">
+                    Δ {{ "{:+.1f}".format(mc.group_wip_delta) }} Kg/h
+                    <br>
+                    <span style="font-size: 0.6rem; opacity: 0.8;">{{ mc.group_balance_status }}</span>
+                </div>
+
+                <i class="bi bi-arrow-down" style="font-size: 1.4rem; color: #94A3B8;"></i>
+            </div>
+
+            <!-- DEMAND NODE (REWINDERS) -->
+            <div class="flow-node demand"
+                style="width: 100%; background: rgba(79, 70, 229, 0.05); border: 1px solid rgba(79, 70, 229, 0.2); border-radius: 12px; padding: 0.75rem; text-align: center;">
+                <div style="font-weight: 800; color: #4F46E5; font-size: 0.9rem;">CONSUMO (REWINDER)</div>
+                <div style="font-size: 0.65rem; color: #94A3B8; margin-bottom: 0.4rem;">{{ mc.total_posts }} PUESTOS
+                </div>
+                <div style="font-size: 1.1rem; font-weight: 800; color: #4F46E5;">{{ mc.group_consumption_kgh }} <small
+                        style="font-size: 0.6rem;">Kg/h</small></div>
+                <div style="font-size: 0.6rem; margin-top: 0.4rem; color: #64748B;">
+                    {% if mc.machine_id == 'T14' %}
+                    (6 p. D12000, 1 p. D18000)
+                    {% else %}
+                    Balance para {{ mc.machine_id }}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- FINAL TOTAL REWINDERS -->
+    <div
+        style="margin-top: 3rem; padding: 1.5rem; border-top: 2px dashed rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h4 style="margin: 0; font-size: 1.1rem; color:rgb(79, 70, 229);">🚀 Total Rewinders Asignados</h4>
+            <p style="margin: 0.25rem 0 0 0; color: #94A3B8; font-size: 0.8rem;">Cálculo basado en la salida de Torsión
+                (Kg/h) para balancear el flujo.</p>
+        </div>
+        <div style="text-align: right;">
+            <div
+                style="font-size: 2.5rem; font-weight: 900; color: {% if total_assigned_posts <= 28 %}#22c55e{% else %}#ef4444{% endif %}; line-height: 1;">
+                {{ total_assigned_posts }}
+            </div>
+            <div style="font-size: 0.8rem; font-weight: 800; color: #94A3B8;">DE 28 PUESTOS DISPONIBLES</div>
+            {% if total_assigned_posts > 28 %}
+            <div style="color: #ef4444; font-size: 0.7rem; font-weight: 800; margin-top: 0.25rem;">
+                ⚠️ ADVERTENCIA: SE EXCEDE EL LÍMITE DE 28 PUESTOS
+            </div>
+            {% else %}
+            <div style="color: #22c55e; font-size: 0.7rem; font-weight: 800; margin-top: 0.25rem;">
+                ✅ DENTRO DEL LÍMITE OPERATIVO
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+
+<!-- DAILY MATERIAL AND CHART -->
+<div class="card" style="margin-top: 2rem; padding: 1.5rem;">
+    <div
+        style="display: flex; justify-content: space-between; align-items: start; border-bottom: 2px dashed rgba(0,0,0,0.05); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+        <div>
+            <h3 style="margin: 0; color: #1E293B;">📅 Requerimiento Diario de Materia Prima</h3>
+            <p style="margin: 0.25rem 0 0; color: #64748B; font-size: 0.8rem;">Proyección de consumo diario de Rewinders
+                por Denier.</p>
+        </div>
+        <button onclick="window.print()" class="btn"
+            style="background: #2563EB; color: white; font-weight: 700; border-radius: 8px; padding: 0.5rem 1rem; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="bi bi-printer"></i> Imprimir Reporte (PDF)
+        </button>
+    </div>
+
+    <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+        <!-- CHART -->
+        <div style="flex: 1; min-width: 300px;">
+            <h4 style="margin-top: 0; color: #475569; font-size: 0.9rem;">📈 Tendencia de Consumo Total</h4>
+            <div id="dailyChart" style="width: 100%; height: 350px;"></div>
+        </div>
+
+        <!-- TABLE -->
+        <div style="flex: 1.5; min-width: 400px; overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                <thead>
+                    <tr style="color: #64748B; border-bottom: 2px solid #E2E8F0;">
+                        <th style="padding: 0.75rem; text-align: left;">Fecha</th>
+                        {% for d in involved_deniers %}
+                        <th style="padding: 0.75rem; text-align: right;">D{{ d }}</th>
+                        {% endfor %}
+                        <th style="padding: 0.75rem; text-align: right; color: #2563EB;">Total Kg</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in daily_projection_table %}
+                    <tr style="border-bottom: 1px solid #F1F5F9;">
+                        <td style="padding: 0.6rem; font-weight: 600; color: #334155;">
+                            {{ row.display_date }} <span
+                                style="font-weight: 400; color: #94A3B8; font-size: 0.75rem;">({{ row.weekday[:3]
+                                }})</span>
+                        </td>
+                        {% for val in row.denier_values %}
+                        <td style="padding: 0.6rem; text-align: right; font-variant-numeric: tabular-nums;">
+                            {% if val > 0 %} <span style="color: #475569;">{{ "{:,.0f}".format(val) }}</span> {% else %}
+                            <span style="color: #CBD5E1;">-</span> {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td
+                            style="padding: 0.6rem; text-align: right; font-weight: 800; color: #2563EB; font-variant-numeric: tabular-nums;">
+                            {{ "{:,.0f}".format(row.total_kg) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    @media print {
+        body {
+            visibility: hidden;
+        }
+
+        .main-content {
+            visibility: visible;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .sidebar,
+        .navbar,
+        .btn {
+            display: none !important;
+        }
+
+        .card {
+            box-shadow: none !important;
+            border: 1px solid #E2E8F0 !important;
+            break-inside: avoid;
+        }
+    }
+</style>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const data = [{
-        x: ["6000", "9000", "12000"],
-        y: [4, 7, 2],
+    // ======= Denier chart data from backend =======
+    const denierData = {{ denier_chart_data | tojson }};
+
+    // Build gradient colors for bars
+    const barColors = denierData.map((_, i) => {
+        const hue = 200 + (i * 30) % 160;
+        return `hsl(${hue}, 70%, 50%)`;
+    });
+
+    const chartData = [{
+        x: denierData.map(d => 'D' + d.denier),
+        y: denierData.map(d => d.kg),
         type: 'bar',
         marker: {
-            color: '#38BDF8',
-            line: { width: 1 }
-        }
+            color: barColors,
+            line: { width: 0 },
+            opacity: 0.85
+        },
+        hovertemplate: '<b>Denier %{x}</b><br>%{y:,.0f} Kg<extra></extra>',
+        textposition: 'outside',
+        text: denierData.map(d => d.kg.toLocaleString('es-CO', { maximumFractionDigits: 0 }) + ' Kg'),
+        textfont: { size: 11, color: '#64748B', family: 'Montserrat' }
     }];
 
-    const layout = {
+    const chartLayout = {
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { family: 'Montserrat', color: '#F8FAFC' },
-        margin: { l: 40, r: 20, t: 20, b: 40 },
-        height: 400,
-        xaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
-        yaxis: { gridcolor: 'rgba(255,255,255,0.05)', title: 'Días Restantes' }
+        font: { family: 'Montserrat', color: '#64748B', size: 12 },
+        margin: { l: 60, r: 20, t: 20, b: 50 },
+        height: 380,
+        xaxis: {
+            gridcolor: 'rgba(0,0,0,0.04)',
+            tickfont: { size: 12, weight: 700 }
+        },
+        yaxis: {
+            gridcolor: 'rgba(0,0,0,0.06)',
+            title: { text: 'Kilogramos', font: { size: 11 } }
+        },
+        bargap: 0.35
     };
 
-    Plotly.newPlot('chart-workload', data, layout);
+    const chartConfig = { displayModeBar: false, responsive: true };
+
+    // ======= DAILY TOTAL CHART (New) =======
+    const dailyDataRaw = {{ daily_total_chart_data | tojson }};
+
+    if (dailyDataRaw && dailyDataRaw.length > 0) {
+        const dailyTrace = {
+            x: dailyDataRaw.map(d => d.date),
+            y: dailyDataRaw.map(d => d.kg),
+            type: 'scatter',
+            mode: 'lines+markers',
+            line: {
+                color: '#2563EB',
+                width: 3,
+                shape: 'spline'
+            },
+            marker: {
+                color: '#fff',
+                size: 6,
+                line: { color: '#2563EB', width: 2 }
+            },
+            fill: 'tozeroy',
+            fillcolor: 'rgba(37, 99, 235, 0.1)',
+            hovertemplate: '<b>%{x}</b><br>%{y:,.0f} Kg<extra></extra>'
+        };
+
+        const dailyLayout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { family: 'Montserrat', color: '#64748B', size: 11 },
+            margin: { l: 50, r: 20, t: 20, b: 40 },
+            height: 350,
+            xaxis: {
+                gridcolor: 'rgba(0,0,0,0.04)',
+                showgrid: true
+            },
+            yaxis: {
+                gridcolor: 'rgba(0,0,0,0.06)',
+                title: { text: 'Kg / Día', font: { size: 10 } }
+            }
+        };
+
+        Plotly.newPlot('dailyChart', [dailyTrace], dailyLayout, chartConfig);
+    }
+    Plotly.newPlot('denier-chart', chartData, chartLayout, chartConfig);
+
+    // Click handler for denier bars
+    document.getElementById('denier-chart').on('plotly_click', function (data) {
+        const idx = data.points[0].pointIndex;
+        const d = denierData[idx];
+        showDenierDetail(d);
+    });
+
+    function showDenierDetail(d) {
+        const titleEl = document.getElementById('detail-title');
+        const subEl = document.getElementById('detail-subtitle');
+        const panelEl = document.getElementById('detail-panel');
+
+        titleEl.innerHTML = `🔍 Denier <strong style="color: var(--accent-blue);">${d.denier}</strong>`;
+        subEl.innerHTML = `${d.references.length} referencia(s) — Total: <strong>${d.kg.toLocaleString('es-CO', { maximumFractionDigits: 0 })} Kg</strong>`;
+
+        let html = '';
+        // Sort references by kg descending
+        const sorted = [...d.references].sort((a, b) => b.kg - a.kg);
+        for (const ref of sorted) {
+            html += `<div class="ref-row">
+                <div>
+                    <span class="ref-code">${ref.codigo}</span>
+                    <div style="font-size: 0.72rem; color: #94A3B8; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${ref.descripcion || '-'}
+                    </div>
+                </div>
+                <span class="ref-kg">${ref.kg.toLocaleString('es-CO', { maximumFractionDigits: 0 })} Kg</span>
+            </div>`;
+        }
+        panelEl.innerHTML = html;
+    }
+
+    // ======= Calendar save =======
+    function saveCalendar() {
+        const selects = document.querySelectorAll('.cal-select');
+        const promises = [];
+
+        selects.forEach(sel => {
+            const date = sel.dataset.date;
+            const hours = parseInt(sel.value);
+            promises.push(
+                fetch('/config/shifts/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `shift_${date}=${hours}`
+                })
+            );
+        });
+
+        // Build form data with all shifts
+        const formData = new URLSearchParams();
+        selects.forEach(sel => {
+            formData.append(`shift_${sel.dataset.date}`, sel.value);
+        });
+
+        fetch('/config/shifts/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        }).then(res => {
+            if (res.redirected) {
+                location.reload();
+            } else {
+                location.reload();
+            }
+        }).catch(err => {
+            alert('Error al guardar el calendario');
+            console.error(err);
+        });
+    }
+
+    function updateCalendarTotal() {
+        const selects = document.querySelectorAll('.cal-select');
+        let total = 0;
+        selects.forEach(sel => total += parseInt(sel.value));
+        // Update visual total (would need a DOM element, but this is fine for UX)
+    }
 </script>
 {% endblock %}
