@@ -35,7 +35,457 @@ def check_auth():
 def dashboard():
     from db.queries import DBQueries
     db = DBQueries()
-    return render_template('dashboard.html', active_page='dashboard', title='Dashboard')
+    
+    # --- Fetch raw data ---
+    orders = db.get_orders()
+    pending_requirements = db.get_pending_requirements()
+    inventarios_cabuyas = db.get_inventarios_cabuyas()
+    machine_denier_configs = db.get_machine_denier_configs()
+    
+    cabuya_lookup = {c['codigo']: c for c in inventarios_cabuyas}
+    
+    # --- Build backlog list (same logic as backlog route) ---
+    backlog_list = []
+    for req in pending_requirements:
+        kg_req = abs(req.get('requerimientos') or 0)
+        d_val = req.get('denier')
+        if d_val is not None:
+            d_name = str(int(d_val)) if isinstance(d_val, (int, float)) else str(d_val)
+        else:
+            d_name = infer_denier_from_description(req.get('descripcion'))
+        backlog_list.append({
+            'codigo': req['codigo'],
+            'descripcion': req.get('descripcion', ''),
+            'kg': kg_req,
+            'denier': d_name
+        })
+    for o in orders:
+        if o.get('cabuya_codigo'):
+            kg_pending = o['total_kg']
+            codigo = o['cabuya_codigo']
+            cabuya_info = cabuya_lookup.get(codigo, {})
+            d_val = cabuya_info.get('denier')
+            if d_val is not None:
+                d_name = str(int(d_val)) if isinstance(d_val, (int, float)) else str(d_val)
+            else:
+                d_name = infer_denier_from_description(cabuya_info.get('descripcion'))
+            backlog_list.append({
+                'codigo': codigo,
+                'descripcion': cabuya_info.get('descripcion', '(Pedido Manual)'),
+                'kg': kg_pending,
+                'denier': d_name
+            })
+    
+    total_backlog_kg = sum(item['kg'] for item in backlog_list)
+    
+    # --- Group by denier ---
+    denier_groups = {}
+    for item in backlog_list:
+        d = item['denier']
+        if d not in denier_groups:
+            denier_groups[d] = {'kg': 0, 'references': []}
+        denier_groups[d]['kg'] += item['kg']
+        denier_groups[d]['references'].append({
+            'codigo': item['codigo'],
+            'descripcion': item['descripcion'],
+            'kg': item['kg']
+        })
+    
+    # Sort denier groups numerically  
+    def denier_sort_key(k):
+        try: return float(k.split(' ')[0])
+        except: return 0.0
+    sorted_deniers = sorted(denier_groups.keys(), key=denier_sort_key)
+    denier_chart_data = []
+    for d in sorted_deniers:
+        denier_chart_data.append({
+            'denier': d,
+            'kg': round(denier_groups[d]['kg'], 2),
+            'references': denier_groups[d]['references']
+        })
+    
+    # --- Machine-Denier Kg/h configs ---
+    # Build a dict: { machine_id: { denier: kgh } }
+    machine_kgh = {}
+    for cfg in machine_denier_configs:
+        mid = cfg['machine_id']
+        denier_str = str(cfg['denier'])
+        rpm = cfg.get('rpm', 0)
+        torsiones = cfg.get('torsiones_metro', 0)
+        husos = cfg.get('husos', 0)
+        if rpm > 0 and torsiones > 0 and husos > 0:
+            try:
+                denier_val = float(denier_str.split(' ')[0])
+                kgh = (rpm / torsiones) * 60 * (denier_val / 9000000) * husos
+            except:
+                kgh = 0
+        else:
+            kgh = 0
+        if mid not in machine_kgh:
+            machine_kgh[mid] = {}
+        machine_kgh[mid][denier_str] = round(kgh, 2)
+    
+    # --- Calendar: 30 days from tomorrow, Colombian holidays 2026 ---
+    today = datetime.now().date()
+    start_date = today + timedelta(days=1)
+    end_date = start_date + timedelta(days=29)
+    
+    # Colombian public holidays 2026
+    colombia_holidays_2026 = [
+        '2026-01-01', '2026-01-12', '2026-03-23',
+        '2026-03-29', '2026-03-30', '2026-04-02', '2026-04-03',
+        '2026-05-01', '2026-05-18', '2026-06-08', '2026-06-15',
+        '2026-06-29', '2026-07-20', '2026-08-07', '2026-08-17',
+        '2026-10-12', '2026-11-02', '2026-11-16',
+        '2026-12-08', '2026-12-25'
+    ]
+    holidays_set = set(colombia_holidays_2026)
+    
+    # Check for user-defined shifts in DB
+    shifts_db = db.get_shifts(str(start_date), str(end_date))
+    shifts_dict = {str(s['date']): s['working_hours'] for s in shifts_db}
+    
+    calendar_days = []
+    total_available_hours = 0
+    curr = start_date
+    weekday_names = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    while curr <= end_date:
+        date_str = str(curr)
+        wd = curr.weekday()  # 0=Mon, 6=Sun
+        
+        # Check if user has defined hours in DB first
+        if date_str in shifts_dict:
+            hours = shifts_dict[date_str]
+        elif date_str in holidays_set or wd == 6:  # Sunday or holiday
+            hours = 0
+        elif wd == 5:  # Saturday
+            hours = 16
+        else:  # Mon-Fri
+            hours = 24
+        
+        is_holiday = date_str in holidays_set
+        calendar_days.append({
+            'date': date_str,
+            'display_date': curr.strftime('%d/%m'),
+            'weekday': weekday_names[wd],
+            'hours': hours,
+            'is_holiday': is_holiday,
+            'is_weekend': wd >= 5
+        })
+        total_available_hours += hours
+        curr += timedelta(days=1)
+    
+    # --- Rewinder configs for post calculation ---
+    rewinder_configs = db.get_rewinder_denier_configs()
+    rewinder_kgh_map = {}
+    for cfg in rewinder_configs:
+        tm_min = cfg.get('tm_minutos', 0)
+        if tm_min > 0:
+            # Formula: (60 / minutes) * 0.8 efficiency factor
+            rewinder_kgh_map[str(cfg['denier'])] = (60 / tm_min) * 0.8
+        else:
+            rewinder_kgh_map[str(cfg['denier'])] = 0
+
+    # --- Machine assignments ---
+    machine_assignments = {
+        'T11': ['2500', '4000'],
+        'T12': ['6000'],
+        'T15': ['3000'],
+        'T14': ['12000', '18000'],
+        'T16': ['2000']
+    }
+    
+    # --- Capacity calculation per machine ---
+    machine_capacity = []
+    total_assigned_posts = 0
+    total_kgh_flow = 0
+
+    for machine_id, assigned_deniers in machine_assignments.items():
+        available_hours = total_available_hours
+        denier_details = []
+        total_required_hours = 0
+        machine_output_kgh = 0
+        
+        # Override TARGET POSTS based on User Request
+        target_posts_map = {
+            'T11': 4.5,
+            'T12': 4.5,
+            'T15': 4,
+            'T16': 6,
+            'T14': 7 # (6 for d12000, 1 for d18000)
+        }
+        
+        # Sort deniers by Kg descending
+        denier_kg_list = []
+        for d in assigned_deniers:
+            kg_for_denier = denier_groups.get(d, {}).get('kg', 0)
+            denier_kg_list.append((d, kg_for_denier))
+        denier_kg_list.sort(key=lambda x: x[1], reverse=True)
+        
+        for d, kg_for_denier in denier_kg_list:
+            # Special logic for T14 spindle distribution (20 for d12000, 4 for d18000)
+            if machine_id == 'T14':
+                # Fetch base config without husos to recalculate with custom husos
+                cfg = next((c for c in machine_denier_configs if c['machine_id'] == 'T14' and str(c['denier']) == d), None)
+                if cfg:
+                    rpm = cfg.get('rpm', 0)
+                    torsiones = cfg.get('torsiones_metro', 0)
+                    custom_husos = 20 if d == '12000' else (4 if d == '18000' else cfg.get('husos', 0))
+                    try:
+                        denier_val = float(d.split(' ')[0])
+                        kgh = (rpm / torsiones) * 60 * (denier_val / 9000000) * custom_husos
+                    except:
+                        kgh = 0
+                else:
+                    kgh = 0
+            else:
+                kgh = machine_kgh.get(machine_id, {}).get(d, 0)
+
+            if kgh > 0 and kg_for_denier > 0:
+                hours_needed = kg_for_denier / kgh
+                
+                # Rewinder Posts calculation
+                if machine_id == 'T14':
+                    posts_for_this_denier = 6 if d == '12000' else (1 if d == '18000' else 0)
+                else:
+                    # In others, we use the target_posts_map spread across its deniers? 
+                    # Usually machines like T11/T12/T15/T16 handle one main denier or a set.
+                    # We'll assign the target_posts to the primary denier or equally.
+                    posts_for_this_denier = target_posts_map.get(machine_id, 0) / len(assigned_deniers)
+            else:
+                hours_needed = 0
+                posts_for_this_denier = 0
+                
+            total_required_hours += hours_needed
+            # WIP in Kg/h: only count if it's currently "running" (has backlog)
+            if kg_for_denier > 0:
+                machine_output_kgh += kgh 
+            
+            denier_details.append({
+                'denier': d,
+                'kg': round(kg_for_denier, 2),
+                'kgh': round(kgh, 2),
+                'hours_needed': round(hours_needed, 2),
+                'posts_needed': round(posts_for_this_denier, 1),
+                'rw_kgh_post': round(rewinder_kgh_map.get(d, 0), 2)
+            })
+        
+        occupancy_pct = (total_required_hours / available_hours * 100) if available_hours > 0 else 0
+        has_capacity = total_required_hours <= available_hours
+        
+        total_kgh_flow += machine_output_kgh
+        machine_final_posts = target_posts_map.get(machine_id, 0) if total_required_hours > 0 else 0
+        
+        # Calculate Group Consumption (Rewinders)
+        group_consumption_kgh = 0
+        if total_required_hours > 0:
+            for dd in denier_details:
+                if dd['kg'] > 0:
+                    # Consumption = posts * kgh_per_post
+                    group_consumption_kgh += (dd['posts_needed'] * dd['rw_kgh_post'])
+        
+        group_wip_delta = machine_output_kgh - group_consumption_kgh
+        if group_wip_delta > 0.1:
+            group_balance_status = "A favor de Torsión" # Suministro excede consumo
+        elif group_wip_delta < -0.1:
+            group_balance_status = "A favor de Rewinder" # Consumo excede suministro
+        else:
+            group_balance_status = "Balanceado"
+
+        machine_capacity.append({
+            'machine_id': machine_id,
+            'assigned_deniers': assigned_deniers,
+            'available_hours': available_hours,
+            'required_hours': round(total_required_hours, 2),
+            'occupancy_pct': round(occupancy_pct, 1),
+            'has_capacity': has_capacity,
+            'remaining_hours': round(available_hours - total_required_hours, 2),
+            'denier_details': denier_details,
+            'total_posts': round(machine_final_posts, 1),
+            'group_supply_kgh': round(machine_output_kgh, 2),
+            'group_consumption_kgh': round(group_consumption_kgh, 2),
+            'group_wip_delta': round(group_wip_delta, 2),
+            'group_balance_status': group_balance_status
+        })
+        total_assigned_posts += machine_final_posts
+
+    # --- Daily Raw Material Projection ---
+    # Group backlog by Machine-Denier to simulate run
+    # simulation_state: { machine_id: [ {denier, kg_remaining, kgh_supply, kgh_consumption} ] }
+    simulation_queues = {}
+    
+    # Pre-calculate kgh consumption for each denier on each machine
+    for mc in machine_capacity:
+        mid = mc['machine_id']
+        simulation_queues[mid] = []
+        for dd in mc['denier_details']:
+            if dd['kg'] > 0:
+                # Fix for D4000 specific rate if needed, or use calculated.
+                # User said: T11 D4000 -> 11.4 Kg/h per post.
+                # Let's ensure rw_kgh_post is correct here if it's 4000
+                if str(dd['denier']) == '4000':
+                    rw_kgh_post = 11.4
+                else:
+                    rw_kgh_post = dd['rw_kgh_post']
+                
+                # T14 logic handled in loop above? 
+                # posts_needed is already strictly set for T14 (6 or 1)
+                # posts_needed for others is set by target_map / n_deniers
+                
+                consumption_rate = dd['posts_needed'] * rw_kgh_post
+                
+                simulation_queues[mid].append({
+                    'denier': dd['denier'],
+                    'kg_remaining': dd['kg'],
+                    'consumption_rate': consumption_rate,
+                    'supply_rate': dd['kgh']
+                })
+
+    daily_requirements_map = {} # { date: { denier: kg_sum } }
+    daily_total_chart_data = [] # [ { date, kg } ]
+
+    for day_info in calendar_days:
+        date_str = day_info['date']
+        display_date = day_info['display_date']
+        hours_today = day_info['hours']
+        
+        daily_sum = 0
+        denier_sums = {}
+
+        if hours_today > 0:
+            for mid, queue in simulation_queues.items():
+                # Sequential or Simultaneous?
+                # T14 is Simultaneous (split spindles). Others are likely Sequential (shared spindles).
+                # Let's assume T14 is simultaneous.
+                # Others: processing one by one? 
+                # The backlog calculation summed hours. 
+                # If T11 has D2500 and D4000, and capacity check sums them, it implies they share the resource.
+                # So we simulate sequential processing for non-T14 machines.
+                
+                simultaneous = (mid == 'T14')
+                
+                hours_left_for_machine = hours_today
+                
+                for item in queue:
+                    if item['kg_remaining'] <= 0: continue
+                    
+                    if simultaneous:
+                        # Use full hours for this item (since it has its own spindles)
+                        run_hours = hours_today
+                        possible_prod = item['supply_rate'] * run_hours
+                        
+                        # But wait, consumption is what we need (Raw Material Req for Rewinder? Or Torsion output?)
+                        # "Requerimiento de materia prima" usually means what goes INTO the process.
+                        # For Rewinder, raw material is Cords from Torsion. 
+                        # User asks for "Kg por dia en total de los rewinder".
+                        # This implies Rewinder Output (or input). 
+                        # If balanced, it's roughly the same.
+                        # Let's use the Minimum of Supply vs Consumption rates to be realistic?
+                        # Or just the Consumption Rate?
+                        # User wants "Kg por dia en total de los rewinder". Let's use consumption_rate.
+                        
+                        # Limit by remaining backlog (which is in Kg of Torsion output)
+                        # Actual processed = min(backlog, supply_rate * hours, consumption_rate * hours)
+                        # Ideally system is balanced. But let's verify.
+                        # If supply > consumption, rewinder is bottleneck.
+                        # If consumption > supply, torsion is bottleneck.
+                        # Production is limited by the bottleneck.
+                        
+                        effective_rate = min(item['supply_rate'], item['consumption_rate'])
+                        if effective_rate <= 0: effective_rate = item['supply_rate'] # Fallback if consumption 0
+                        
+                        produced_kg = effective_rate * run_hours
+                        
+                        # Cap at remaining backlog
+                        if produced_kg > item['kg_remaining']:
+                            produced_kg = item['kg_remaining']
+                            
+                        item['kg_remaining'] -= produced_kg
+                        
+                        d_name = item['denier']
+                        denier_sums[d_name] = denier_sums.get(d_name, 0) + produced_kg
+                        daily_sum += produced_kg
+
+                    else:
+                        # Sequential
+                        if hours_left_for_machine <= 0: break
+                        
+                        effective_rate = min(item['supply_rate'], item['consumption_rate'])
+                        if effective_rate <= 0: effective_rate = item['supply_rate']
+
+                        max_kg_in_time = effective_rate * hours_left_for_machine
+                        
+                        if max_kg_in_time >= item['kg_remaining']:
+                            # Finish this backlog item
+                            produced_kg = item['kg_remaining']
+                            time_used = produced_kg / effective_rate if effective_rate > 0 else 0
+                            hours_left_for_machine -= time_used
+                            item['kg_remaining'] = 0
+                        else:
+                            # Partial
+                            produced_kg = max_kg_in_time
+                            hours_left_for_machine = 0
+                            item['kg_remaining'] -= produced_kg
+                        
+                        d_name = item['denier']
+                        denier_sums[d_name] = denier_sums.get(d_name, 0) + produced_kg
+                        daily_sum += produced_kg
+
+        daily_requirements_map[date_str] = denier_sums
+        daily_total_chart_data.append({
+            'date': display_date,
+            'kg': round(daily_sum, 0)
+        })
+
+    # Transform map for template: list of { date: ..., deniers: { '2000': 100, ... }, total: ... }
+    daily_projection_table = []
+    # collection of all deniers involved
+    all_involved_deniers = set()
+    for d_map in daily_requirements_map.values():
+        all_involved_deniers.update(d_map.keys())
+    sorted_involved_deniers = sorted(list(all_involved_deniers), key=lambda x: float(x.split()[0]) if x[0].isdigit() else 0)
+
+    for day_info in calendar_days:
+        d_map = daily_requirements_map.get(day_info['date'], {})
+        total_day = sum(d_map.values())
+        if total_day > 0:
+            row = {
+                'display_date': day_info['display_date'],
+                'weekday': day_info['weekday'],
+                'denier_values': [round(d_map.get(d, 0), 1) for d in sorted_involved_deniers],
+                'total_kg': round(total_day, 1)
+            }
+            daily_projection_table.append(row)
+
+    # --- Better Redistribution Suggestions ---
+    for mc in machine_capacity:
+        if not mc['has_capacity']:
+            mc['suggestions'] = []
+            for d in mc['assigned_deniers']:
+                for other_mc in machine_capacity:
+                    if other_mc['machine_id'] == mc['machine_id']: continue
+                    other_kgh = machine_kgh.get(other_mc['machine_id'], {}).get(d, 0)
+                    if other_kgh > 0 and other_mc['has_capacity'] and other_mc['remaining_hours'] > 20:
+                        mc['suggestions'].append({
+                            'denier': d,
+                            'target_machine': other_mc['machine_id'],
+                            'available_hours': other_mc['remaining_hours']
+                        })
+
+    return render_template('dashboard.html',
+                         active_page='dashboard',
+                         title='Dashboard',
+                         total_backlog_kg=total_backlog_kg,
+                         denier_chart_data=denier_chart_data,
+                         calendar_days=calendar_days,
+                         total_available_hours=total_available_hours,
+                         machine_capacity=machine_capacity,
+                         machine_assignments=machine_assignments,
+                         total_assigned_posts=round(total_assigned_posts, 1),
+                         wip_total_kgh=round(total_kgh_flow, 1),
+                         daily_projection_table=daily_projection_table,
+                         involved_deniers=sorted_involved_deniers,
+                         daily_total_chart_data=daily_total_chart_data)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -236,7 +686,6 @@ def programming():
     sc_data = db.get_all_scheduling_data()
     return render_template('programming.html', active_page='programming', title='Programación', sc_data=sc_data)
 
-@app.route('/api/generate_schedule', methods=['POST'])
 @app.route('/api/generate_schedule', methods=['POST'])
 def api_generate_schedule():
     from db.queries import DBQueries
@@ -525,6 +974,8 @@ def update_cabuya_priority():
         except Exception as e:
             return jsonify(success=False, error=str(e)), 500
     return jsonify(success=False, error="Missing data"), 400
+
+
 
 # Health check
 @app.route('/health')
